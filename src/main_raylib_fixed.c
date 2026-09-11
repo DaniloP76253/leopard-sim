@@ -354,7 +354,7 @@ static void turret_input_toward(const Tank *player, double desired_az_rel_deg, d
  * FOV) for precision shooting. Both share the same aiming state above.
  * ------------------------------------------------------------------- */
 
-static void update_chase_camera(Camera3D *camera, const Tank *player, float *orbit_yaw_deg,
+static void update_chase_camera(Camera3D *camera, const Tank *player, const GunnerControl *ctrl, float *orbit_yaw_deg,
                                 float *orbit_pitch_deg, float *orbit_distance, float kick)
 {
     if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
@@ -362,8 +362,8 @@ static void update_chase_camera(Camera3D *camera, const Tank *player, float *orb
         *orbit_yaw_deg = (float)norm_deg((double)*orbit_yaw_deg + delta.x * 0.18f);
         *orbit_pitch_deg -= delta.y * 0.12f;
     } else {
-        float desired_yaw = (float)norm_deg(player->heading_deg + 180.0);
-        *orbit_yaw_deg = lerp_angle_deg(*orbit_yaw_deg, desired_yaw, 0.06f);
+        float desired_yaw = (float)norm_deg(player->heading_deg + ctrl->desired_turret_azimuth_deg);
+        *orbit_yaw_deg = lerp_angle_deg(*orbit_yaw_deg, desired_yaw, 0.40f);
         *orbit_pitch_deg = lerpf(*orbit_pitch_deg, CAMERA_BASE_PITCH, 0.04f);
     }
 
@@ -384,7 +384,6 @@ static void update_chase_camera(Camera3D *camera, const Tank *player, float *orb
     Vector3 desired_pos = vec3_add(player_pos, vec3_scale(forward, -*orbit_distance));
     desired_pos.y += 3.0f;
 
-    /* keep the camera from sinking into a hillside behind the tank */
     float ground_at_cam = terrain_visual_height_at(vec2_make(desired_pos.x, desired_pos.z));
     if (desired_pos.y < ground_at_cam + 1.2f) desired_pos.y = ground_at_cam + 1.2f;
 
@@ -398,7 +397,7 @@ static void update_gunner_camera(Camera3D *camera, const Tank *player, float kic
 {
     Vector3 turret_pos = tank_render_pos(player, PLAYER_HEIGHT + 1.0f + (float)player->hull_bounce_m);
     Vector3 aim_dir = tank_boresight_dir(player);
-    Vector3 eye = vec3_add(turret_pos, vec3_scale(aim_dir, 0.9f));
+    Vector3 eye = vec3_add(turret_pos, vec3_scale(aim_dir, 3.5f));
 
     camera->position = vec3_lerp(camera->position, eye, 0.35f);
     camera->target = vec3_add(camera->position, aim_dir);
@@ -905,7 +904,7 @@ int main(void)
         if (gunner_sight_active) {
             update_gunner_camera(&camera, &player, camera_kick);
         } else {
-            update_chase_camera(&camera, &player, &orbit_yaw_deg, &orbit_pitch_deg, &orbit_distance, camera_kick);
+            update_chase_camera(&camera, &player, &ctrl, &orbit_yaw_deg, &orbit_pitch_deg, &orbit_distance, camera_kick);
         }
 
         Vector3 turret_pos_now = tank_render_pos(&player, PLAYER_HEIGHT + 1.0f + (float)player.hull_bounce_m);

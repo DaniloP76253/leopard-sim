@@ -4,15 +4,17 @@ def write_obj(filename, vertices, faces):
     with open(filename, 'w') as f:
         for v in vertices:
             f.write(f"v {v[0]} {v[1]} {v[2]}\n")
-        # generate simple UVs
+        # UVs
         f.write("vt 0.0 0.0\nvt 1.0 0.0\nvt 1.0 1.0\nvt 0.0 1.0\n")
-        # face format: v/vt/vn
+        
+        # Triangulate faces
         for face in faces:
-            f.write("f")
-            for i, v_idx in enumerate(face):
-                vt_idx = (i % 4) + 1
-                f.write(f" {v_idx}/{vt_idx}")
-            f.write("\n")
+            # simple triangle fan from the first vertex
+            v0 = face[0]
+            for i in range(1, len(face) - 1):
+                v1 = face[i]
+                v2 = face[i+1]
+                f.write(f"f {v0}/1 {v1}/2 {v2}/3\n")
 
 # Hull: 
 hull_v = [

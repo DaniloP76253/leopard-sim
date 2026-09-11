@@ -705,16 +705,16 @@ static void init_scene_assets(SceneAssets *assets)
     SetMaterialTexture(&assets->rock_model.materials[0], MATERIAL_MAP_ALBEDO, assets->rock_texture);
     UnloadImage(rock_image);
 
-    assets->player_hull_model = LoadModelFromMesh(GenMeshCube(6.0f, 1.4f, 3.4f));
-    assets->player_turret_model = LoadModelFromMesh(GenMeshCube(2.4f, 0.9f, 2.0f));
+    assets->player_hull_model = LoadModel("hull.obj");
+    assets->player_turret_model = LoadModel("turret.obj");
     Image player_camo = build_camo_texture_image((Color){ 74, 86, 58, 255 }, (Color){ 54, 64, 42, 255 }, (Color){ 96, 100, 74, 255 });
     assets->player_camo_texture = LoadTextureFromImage(player_camo);
     SetMaterialTexture(&assets->player_hull_model.materials[0], MATERIAL_MAP_ALBEDO, assets->player_camo_texture);
     SetMaterialTexture(&assets->player_turret_model.materials[0], MATERIAL_MAP_ALBEDO, assets->player_camo_texture);
     UnloadImage(player_camo);
 
-    assets->enemy_hull_model = LoadModelFromMesh(GenMeshCube(6.0f, 1.4f, 3.4f));
-    assets->enemy_turret_model = LoadModelFromMesh(GenMeshCube(2.4f, 0.9f, 2.0f));
+    assets->enemy_hull_model = LoadModel("hull.obj");
+    assets->enemy_turret_model = LoadModel("turret.obj");
     Image enemy_camo = build_camo_texture_image((Color){ 150, 124, 88, 255 }, (Color){ 120, 96, 66, 255 }, (Color){ 168, 140, 104, 255 });
     assets->enemy_camo_texture = LoadTextureFromImage(enemy_camo);
     SetMaterialTexture(&assets->enemy_hull_model.materials[0], MATERIAL_MAP_ALBEDO, assets->enemy_camo_texture);

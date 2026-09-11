@@ -20,10 +20,10 @@ void tank_init_leopard2a7(Tank *t, const char *name, Vec2 pos, double heading_de
 
     t->mass_kg            = 67000.0;   /* combat weight, approx      */
     t->engine_power_hp    = 1500.0;    /* MTU MB 873-style powerpack */
-    t->accel_fwd_mss      = 2.0;
-    t->accel_rev_mss      = 1.0;
-    t->brake_decel_mss    = 4.5;
-    t->roll_resist_mss    = 0.6;
+    t->accel_fwd_mss      = 1.1;
+    t->accel_rev_mss      = 0.6;
+    t->brake_decel_mss    = 3.0;
+    t->roll_resist_mss    = 0.8;
     t->max_speed_fwd_ms   = 70.0 / 3.6;
     t->max_speed_rev_ms   = 25.0 / 3.6;
     t->max_pivot_rate_dps = 25.0;
@@ -35,7 +35,7 @@ void tank_init_leopard2a7(Tank *t, const char *name, Vec2 pos, double heading_de
     t->gun_elevation_max_deg  = 20.0;
     t->gun_elevation_dps      = 10.0;
 
-    t->reload_time_s  = 7.3;
+    t->reload_time_s  = 6.0;
     t->reload_timer_s = 0.0;
 
     t->module_engine_hp = 100.0;
@@ -76,10 +76,10 @@ void tank_init_generic_mbt(Tank *t, const char *name, Vec2 pos, double heading_d
 
     t->mass_kg            = 46000.0;
     t->engine_power_hp    = 1000.0;
-    t->accel_fwd_mss      = 2.4;
-    t->accel_rev_mss      = 1.2;
-    t->brake_decel_mss    = 4.0;
-    t->roll_resist_mss    = 0.6;
+    t->accel_fwd_mss      = 1.3;
+    t->accel_rev_mss      = 0.8;
+    t->brake_decel_mss    = 2.8;
+    t->roll_resist_mss    = 0.8;
     t->max_speed_fwd_ms   = 60.0 / 3.6;
     t->max_speed_rev_ms   = 15.0 / 3.6;
     t->max_pivot_rate_dps = 30.0;
@@ -91,7 +91,7 @@ void tank_init_generic_mbt(Tank *t, const char *name, Vec2 pos, double heading_d
     t->gun_elevation_max_deg  = 14.0;
     t->gun_elevation_dps      = 8.0;
 
-    t->reload_time_s  = 8.5;
+    t->reload_time_s  = 7.0;
     t->reload_timer_s = 0.0;
 
     t->module_engine_hp = 100.0;
@@ -134,8 +134,8 @@ void tank_init_generic_mbt(Tank *t, const char *name, Vec2 pos, double heading_d
  *      you'll visibly bleed off speed, just like the real thing.
  * At a standstill neither term does anything (nothing to divert power
  * from, nothing to scrub), so neutral/pivot turns are still full-rate. */
-#define TURN_POWER_SHARE_MAX   0.35 /* fraction of forward accel diverted to the differential at full steer lock */
-#define TURN_SCRUB_DECEL_MSS   0.18 /* extra decel (m/s^2) per unit |steer| * |speed_ms| while turning */
+#define TURN_POWER_SHARE_MAX   0.50 /* fraction of forward accel diverted to the differential at full steer lock */
+#define TURN_SCRUB_DECEL_MSS   0.45 /* extra decel (m/s^2) per unit |steer| * |speed_ms| while turning */
 
 void tank_update_movement(Tank *t, double throttle, double steer, double terrain_grip, double dt)
 {

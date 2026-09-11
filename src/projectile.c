@@ -1,8 +1,6 @@
 #include "projectile.h"
 #include <math.h>
 
-#define GRAVITY_MSS 9.81
-
 void projectile_launch(Projectile *p, Vec2 origin_xy, double origin_z,
                         double azimuth_deg, double elevation_deg,
                         double muzzle_velocity_ms, AmmoTypeId ammo_type)

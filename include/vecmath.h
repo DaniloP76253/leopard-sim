@@ -7,6 +7,11 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+/* Shared physics constant -- used by projectile.c (flight integration) and
+ * ai.c (ballistic elevation solution). Defined once here so the two can
+ * never quietly drift apart. */
+#define GRAVITY_MSS 9.81
+
 /* ---- 2D vector (horizontal plane, meters) ---- */
 typedef struct {
     double x;

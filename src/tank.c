@@ -49,9 +49,9 @@ void tank_init_leopard2a7(Tank *t, const char *name, Vec2 pos, double heading_de
     t->hull_bounce_m  = 0.0;
 
     t->current_ammo = AMMO_APFSDS;
-    t->ammo_count[AMMO_APFSDS] = 20;
-    t->ammo_count[AMMO_HEAT]   = 10;
-    t->ammo_count[AMMO_HE]     = 12;
+    t->ammo_count[AMMO_APFSDS] = 20; t->ammo_max[AMMO_APFSDS] = 20;
+    t->ammo_count[AMMO_HEAT]   = 10; t->ammo_max[AMMO_HEAT]   = 10;
+    t->ammo_count[AMMO_HE]     = 12; t->ammo_max[AMMO_HE]     = 12;
 
     t->armor.hull_front   = (ArmorPlate){ "Hull upper glacis", 100.0, 82.0 };
     t->armor.hull_side    = (ArmorPlate){ "Hull side",          25.0,  0.0 };
@@ -105,9 +105,9 @@ void tank_init_generic_mbt(Tank *t, const char *name, Vec2 pos, double heading_d
     t->hull_bounce_m  = 0.0;
 
     t->current_ammo = AMMO_APFSDS;
-    t->ammo_count[AMMO_APFSDS] = 20;
-    t->ammo_count[AMMO_HEAT]   = 8;
-    t->ammo_count[AMMO_HE]     = 8;
+    t->ammo_count[AMMO_APFSDS] = 20; t->ammo_max[AMMO_APFSDS] = 20;
+    t->ammo_count[AMMO_HEAT]   = 8;  t->ammo_max[AMMO_HEAT]   = 8;
+    t->ammo_count[AMMO_HE]     = 8;  t->ammo_max[AMMO_HE]     = 8;
 
     t->armor.hull_front   = (ArmorPlate){ "Hull upper glacis", 80.0, 68.0 };
     t->armor.hull_side    = (ArmorPlate){ "Hull side",         20.0,  0.0 };
@@ -120,6 +120,22 @@ void tank_init_generic_mbt(Tank *t, const char *name, Vec2 pos, double heading_d
     t->hp = 100.0;
     t->alive = 1;
 }
+
+/* Differential/skid steering: a track vehicle turns by running its two
+ * tracks at different speeds, not by "steering wheels" the way a wheeled
+ * vehicle does. That costs a moving tank speed two ways, both modeled
+ * below:
+ *   1. engine power that goes into the speed *differential* between the
+ *      tracks isn't available to push the vehicle forward, so harder
+ *      steering directly eats into your acceleration budget.
+ *   2. the tracks scrub sideways against the ground while turning, and
+ *      that scrub drag grows with both how hard you're turning and how
+ *      fast you're already going -- crank the stick over at speed and
+ *      you'll visibly bleed off speed, just like the real thing.
+ * At a standstill neither term does anything (nothing to divert power
+ * from, nothing to scrub), so neutral/pivot turns are still full-rate. */
+#define TURN_POWER_SHARE_MAX   0.35 /* fraction of forward accel diverted to the differential at full steer lock */
+#define TURN_SCRUB_DECEL_MSS   0.18 /* extra decel (m/s^2) per unit |steer| * |speed_ms| while turning */
 
 void tank_update_movement(Tank *t, double throttle, double steer, double terrain_grip, double dt)
 {
@@ -146,11 +162,13 @@ void tank_update_movement(Tank *t, double throttle, double steer, double terrain
     int braking = (throttle > 0.0 && old_speed < -0.05) ||
                   (throttle < 0.0 && old_speed >  0.05);
 
+    double turn_power_share = TURN_POWER_SHARE_MAX * fabs(steer);
+
     double accel = 0.0;
     if (!braking) {
         if (!engine_destroyed) {
-            if (throttle > 0.0)      accel = throttle * t->accel_fwd_mss * terrain_grip * (0.25 + 0.75 * engine_factor);
-            else if (throttle < 0.0) accel = throttle * t->accel_rev_mss * terrain_grip * (0.25 + 0.75 * engine_factor);
+            if (throttle > 0.0)      accel = throttle * t->accel_fwd_mss * terrain_grip * (0.25 + 0.75 * engine_factor) * (1.0 - turn_power_share);
+            else if (throttle < 0.0) accel = throttle * t->accel_rev_mss * terrain_grip * (0.25 + 0.75 * engine_factor) * (1.0 - turn_power_share);
         }
     } else {
         accel = (old_speed > 0.0) ? -t->brake_decel_mss * (0.5 + 0.5 * track_factor)
@@ -163,11 +181,20 @@ void tank_update_movement(Tank *t, double throttle, double steer, double terrain
         else if (old_speed < 0.0) resist =  t->roll_resist_mss;
     }
 
-    double new_speed = old_speed + (accel + resist) * dt;
+    /* track scrub drag: opposes whichever way the tank is already
+     * moving (it's drag, not a directional push), scales with speed so
+     * it's negligible while crawling but real once you're moving fast */
+    double scrub_decel = 0.0;
+    if (fabs(old_speed) > 0.05) {
+        double scrub_mag = TURN_SCRUB_DECEL_MSS * fabs(steer) * fabs(old_speed) * terrain_grip;
+        scrub_decel = (old_speed > 0.0) ? -scrub_mag : scrub_mag;
+    }
 
-    /* don't let resistance/braking fling the tank into reverse on its own */
+    double new_speed = old_speed + (accel + resist + scrub_decel) * dt;
+
+    /* don't let resistance/braking/scrub fling the tank into reverse on its own */
     if ((old_speed > 0.0 && new_speed < 0.0) || (old_speed < 0.0 && new_speed > 0.0)) {
-        if (fabs(throttle) < 1e-6 || braking) new_speed = 0.0;
+        if (fabs(throttle) < 1e-6 || braking || fabs(steer) > 1e-6) new_speed = 0.0;
     }
 
     double max_fwd = t->max_speed_fwd_ms * terrain_grip * (0.2 + 0.8 * engine_factor) * (0.4 + 0.6 * track_factor);

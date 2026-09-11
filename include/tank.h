@@ -49,6 +49,7 @@ typedef struct {
 
     AmmoTypeId current_ammo;
     int ammo_count[AMMO_TYPE_COUNT];
+    int ammo_max[AMMO_TYPE_COUNT];   /* starting loadout; what a resupply tops back up to */
 
     ArmorProfile armor;
 

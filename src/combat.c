@@ -119,8 +119,12 @@ static void apply_nonpenetration_damage(Tank *target, const ArmorPlate *plate, c
     target->module_optics_hp  = clampd(target->module_optics_hp, 0.0, 100.0);
 }
 
-void combat_fire_shot(Tank *shooter, Tank *target)
+void combat_fire_shot(Tank *shooter, Tank *target, CombatShotResult *out_result)
 {
+    CombatShotResult local_result = {0};
+    CombatShotResult *r = out_result ? out_result : &local_result;
+    r->outcome = SHOT_OUTCOME_INVALID;
+
     if (!target->alive) {
         printf("%s is already destroyed -- nothing to shoot at.\n", target->name);
         return;
@@ -197,11 +201,15 @@ void combat_fire_shot(Tank *shooter, Tank *target)
     printf("\n--- FIRING %s ---\n", ammo->name);
 
     if (!hit) {
+        r->range_m = proj.distance_traveled_m;
+        r->impact_point = vec3_make(proj.pos.x, proj.pos.y, proj.z);
         if (terrain_blocked) {
+            r->outcome = SHOT_OUTCOME_TERRAIN_BLOCKED;
             printf("MISS -- shell struck terrain cover after %.0fm of flight.\n", proj.distance_traveled_m);
         } else {
-        printf("MISS -- closest approach %.1fm from target, shell flew %.0fm in %.2fs.\n",
-               closest_dist, proj.distance_traveled_m, proj.time_s);
+            r->outcome = SHOT_OUTCOME_MISS;
+            printf("MISS -- closest approach %.1fm from target, shell flew %.0fm in %.2fs.\n",
+                   closest_dist, proj.distance_traveled_m, proj.time_s);
         }
         return;
     }
@@ -253,6 +261,10 @@ void combat_fire_shot(Tank *shooter, Tank *target)
     printf("Obliquity %.0f deg | plate %.0fmm base -> %.0fmm effective | %s penetration here: %.0fmm\n",
            obliquity_deg, plate->thickness_mm, eff_thick, ammo->short_name, pen);
 
+    r->range_m = hit_range_m;
+    r->impact_point = vec3_make(proj.pos.x, proj.pos.y, proj.z);
+    r->face_label = face_label;
+
     if (pen >= eff_thick) {
         double dmg = (ammo->he_filler_g > 0.0) ? 25.0 + ammo->he_filler_g / 25.0 : 45.0;
         int catastrophic = 0;
@@ -267,10 +279,14 @@ void combat_fire_shot(Tank *shooter, Tank *target)
         if (catastrophic) {
             target->hp = 0.0;
             printf(" Catastrophic ammo/crew loss -- %s is DESTROYED!\n", target->name);
+            r->outcome = SHOT_OUTCOME_CATASTROPHIC_KILL;
+            r->damage_dealt = 100.0;
         } else {
             target->hp -= dmg;
             if (target->hp < 0.0) target->hp = 0.0;
             printf(" %.0f damage. %s HP: %.0f/100\n", dmg, target->name, target->hp);
+            r->outcome = SHOT_OUTCOME_PENETRATION;
+            r->damage_dealt = dmg;
         }
         apply_module_damage(target, plate, ammo, eff_thick, pen);
         printf(" Modules -> engine %.0f, tracks %.0f, turret %.0f, gun %.0f, optics %.0f\n",
@@ -279,10 +295,12 @@ void combat_fire_shot(Tank *shooter, Tank *target)
         if (target->hp <= 0.0) target->alive = 0;
     } else {
         printf(">>> NO PENETRATION -- shell defeated (needed %.0fmm, had %.0fmm).\n", eff_thick, pen);
+        r->outcome = SHOT_OUTCOME_NO_PENETRATION;
         if (ammo->he_filler_g > 0.0) {
             double splash_damage = 6.0 + ammo->he_filler_g / 22.0;
             target->hp -= splash_damage;
             if (target->hp < 0.0) target->hp = 0.0;
+            r->damage_dealt = splash_damage;
             apply_nonpenetration_damage(target, plate, ammo);
             printf("Blast damage from %s. %s HP: %.0f/100\n", ammo->short_name, target->name, target->hp);
             printf(" Modules -> engine %.0f, tracks %.0f, turret %.0f, gun %.0f, optics %.0f\n",
@@ -291,6 +309,7 @@ void combat_fire_shot(Tank *shooter, Tank *target)
         } else if ((rand() % 100) < 10) {
             target->hp -= 2.0;
             if (target->hp < 0.0) target->hp = 0.0;
+            r->damage_dealt = 2.0;
             printf("Minor spall/optics damage. %s HP: %.0f/100\n", target->name, target->hp);
         }
     }

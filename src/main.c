@@ -2,12 +2,20 @@
  * LEOPARD 2A7 -- DRIVE & GUNNERY SIMULATOR
  *
  * A text/console tank sim with War-Thunder-flavored mechanics:
- *   - differential-steering hull physics (throttle/steer -> speed/heading)
+ *   - differential-steering hull physics (throttle/steer -> speed/heading,
+ *     with real drag from turning -- crank the stick at speed and you'll
+ *     visibly bleed speed off, same as an actual tracked vehicle)
  *   - independent turret traverse + gun elevation with slew rate limits
  *   - real gravity+drag ballistic flight for each round (not hitscan)
  *   - 3D armor obliquity (hull/turret slope combined with your firing
  *     angle) compared against a range-dependent penetration table
  *   - simple gun-handling dispersion (worse while moving / slewing)
+ *   - a smart-ish enemy gunner (leads your velocity, solves elevation
+ *     from the actual muzzle velocity, retreats when hurt, circles at
+ *     range instead of parking nose-on) that shoots back once you turn
+ *     its AI on
+ *   - a wave/kill loop: destroy the target and a fresh one rolls in a
+ *     little tougher, plus a supply depot to resupply ammo and repair
  *
  * All numeric stats (armor mm, penetration mm, speeds, reload time...)
  * are clearly-labeled EDITABLE PLACEHOLDERS -- see ammo.c and tank.c.
@@ -28,13 +36,21 @@
 #include "tank.h"
 #include "projectile.h"
 #include "combat.h"
+#include "ai.h"
+#include "match.h"
 
 #define TICK_DT           0.5   /* seconds of sim time per player command */
-#define PHYS_DT           0.01  /* ballistic integration step             */
-#define MAX_FLIGHT_TIME_S 15.0
 #define HIT_RADIUS_M      2.0   /* horizontal tolerance = approx half-width of hull */
-#define SILHOUETTE_MAX_Z  3.2   /* rough overall vehicle height incl. turret */
-#define HULL_MAX_Z        1.4   /* z below this = hull, above = turret     */
+#define WAVE_RESPAWN_DELAY_S   4.0
+#define WAVE_ORIGIN_X          0.0
+#define WAVE_ORIGIN_Y          0.0
+#define WAVE_MIN_RANGE_M     500.0
+#define WAVE_MAX_RANGE_M     900.0
+#define AI_PREFERRED_RANGE_M 350.0
+#define SUPPLY_DEPOT_X         0.0
+#define SUPPLY_DEPOT_Y       220.0
+#define SUPPLY_RADIUS_M       20.0
+#define SUPPLY_HEAL_PER_S      8.0
 #define MUD_CENTER_X   300.0
 #define MUD_CENTER_Y  -150.0
 #define MUD_RADIUS_M   120.0
@@ -67,28 +83,35 @@ static void print_help(void)
         " Scenario / debug:\n"
         "   t pos <x> <y> <heading_deg>   move the target\n"
         "   t turret <deg>                 set target turret angle\n"
-        "   t ai on|off                    toggle target auto-drive\n"
+        "   t ai on|off                    toggle enemy AI (drives, leads\n"
+        "                                  your velocity, and shoots back)\n"
         "   reset                           restart the scenario\n"
         " help / h / ?     show this help\n"
         " quit / exit / q  end simulation\n"
         "==============================================\n"
         " Heading convention: 0deg = East (+X), 90deg = North (+Y), CCW+.\n"
         " [n] repeats a driving/turret command for n ticks (default 1).\n"
+        " Turning bleeds real speed now -- crank the wheel at speed and\n"
+        " you'll feel it, same as a real tracked vehicle.\n"
+        " Drive over (%.0f,%.0f), radius %.0fm, to resupply ammo and repair.\n"
+        " Destroy the target to clear a wave -- the next one is a little\n"
+        " tougher and rolls in a few seconds later. 't ai off' freezes the\n"
+        " target in place for penetration testing, same as before.\n"
         "==============================================\n\n",
-        TICK_DT);
+        TICK_DT, SUPPLY_DEPOT_X, SUPPLY_DEPOT_Y, SUPPLY_RADIUS_M);
 }
 
-static void print_status(double sim_time_s, const Tank *p, const Tank *t, int target_ai)
+static void print_status(double sim_time_s, const Tank *p, const Tank *t, int target_ai, const MatchState *match)
 {
     printf("\n--- STATUS  (t = %.1fs) ---\n", sim_time_s);
     printf("%-8s pos(%.0f,%.0f) hdg %.0f  spd %.1f km/h  turret %.0f (abs %.0f)  gun %.1f\n",
            p->name, p->position_m.x, p->position_m.y, p->heading_deg,
            tank_speed_kmh(p), p->turret_azimuth_deg,
            tank_absolute_turret_azimuth_deg(p), p->gun_elevation_deg);
-    printf("         ammo: %s x%d  %s x%d  %s x%d   selected: %s   reload: %s\n",
-           ammo_get(AMMO_APFSDS)->short_name, p->ammo_count[AMMO_APFSDS],
-           ammo_get(AMMO_HEAT)->short_name,   p->ammo_count[AMMO_HEAT],
-           ammo_get(AMMO_HE)->short_name,     p->ammo_count[AMMO_HE],
+    printf("         ammo: %s x%d/%d  %s x%d/%d  %s x%d/%d   selected: %s   reload: %s\n",
+           ammo_get(AMMO_APFSDS)->short_name, p->ammo_count[AMMO_APFSDS], p->ammo_max[AMMO_APFSDS],
+           ammo_get(AMMO_HEAT)->short_name,   p->ammo_count[AMMO_HEAT], p->ammo_max[AMMO_HEAT],
+           ammo_get(AMMO_HE)->short_name,     p->ammo_count[AMMO_HE], p->ammo_max[AMMO_HE],
            ammo_get(p->current_ammo)->short_name,
            p->reload_timer_s > 0.0 ? "reloading" : "READY");
     if (p->reload_timer_s > 0.0) printf("         reload in %.1fs\n", p->reload_timer_s);
@@ -103,7 +126,13 @@ static void print_status(double sim_time_s, const Tank *p, const Tank *t, int ta
            t->name, t->position_m.x, t->position_m.y, t->heading_deg,
            tank_absolute_turret_azimuth_deg(t), range, bearing,
            target_ai ? "on" : "off");
-    printf("         HP: %.0f/100  %s\n\n", t->hp, t->alive ? "" : "-- DESTROYED");
+    printf("         HP: %.0f/100  %s\n", t->hp, t->alive ? "" : "-- DESTROYED");
+
+    if (!t->alive && match->respawn_timer_s > 0.0) {
+        printf("Wave %d cleared (kills: %d) -- next wave in %.1fs\n\n", match->wave, match->kills, match->respawn_timer_s);
+    } else {
+        printf("Wave %d in progress -- kills so far: %d\n\n", match->wave, match->kills);
+    }
 }
 
 static void print_map(const Tank *p, const Tank *t)
@@ -135,6 +164,44 @@ static void print_map(const Tank *p, const Tank *t)
     putchar('\n');
 }
 
+/* Everything that happens to the *target* and the *player's supply
+ * status* every tick, regardless of which player command triggered the
+ * tick. The player's own movement/turret/reload are applied by the
+ * caller first (they differ per command), then this runs once. */
+static void advance_tick(Tank *player, Tank *target, AiState *target_ai_state, int target_ai,
+                         MatchState *match, const SupplyDepot *depot, double *sim_time_s, double dt)
+{
+    if (target->alive) {
+        if (target_ai) {
+            AiCommand cmd = ai_compute_command(target_ai_state, target, player, dt);
+            tank_update_movement(target, cmd.throttle, cmd.steer, terrain_grip_at(target->position_m), dt);
+            tank_update_turret(target, cmd.turret_input, cmd.elevation_input, dt);
+            tank_tick_reload(target, dt);
+            if (cmd.wants_to_fire && tank_can_fire(target) && target->reload_timer_s <= 0.0 &&
+                target->ammo_count[target->current_ammo] > 0) {
+                combat_fire_shot(target, player, NULL);
+            }
+        } else {
+            tank_tick_reload(target, dt);
+        }
+    } else {
+        match->respawn_timer_s -= dt;
+        if (match->respawn_timer_s <= 0.0) {
+            match->wave++;
+            match_spawn_wave(match, target, "Target", vec2_make(WAVE_ORIGIN_X, WAVE_ORIGIN_Y),
+                             WAVE_MIN_RANGE_M, WAVE_MAX_RANGE_M);
+            ai_state_init(target_ai_state, AI_PREFERRED_RANGE_M);
+            printf("\n=== Wave %d inbound: %s reporting for duty. ===\n", match->wave, target->name);
+        }
+    }
+
+    if (match_try_resupply(player, depot, dt)) {
+        printf(">>> %s fully resupplied and repaired at the depot.\n", player->name);
+    }
+
+    *sim_time_s += dt;
+}
+
 int main(void)
 {
     srand((unsigned)time(NULL));
@@ -143,10 +210,14 @@ int main(void)
     Tank player, target;
     double sim_time_s;
     int target_ai = 0;
-    double target_throttle = 0.4, target_steer = 0.0;
+    MatchState match;
+    AiState target_ai_state;
+    SupplyDepot depot = { { SUPPLY_DEPOT_X, SUPPLY_DEPOT_Y }, SUPPLY_RADIUS_M, SUPPLY_HEAL_PER_S };
 
     tank_init_leopard2a7(&player, "Player", vec2_make(0.0, 0.0), 0.0);
     tank_init_generic_mbt(&target, "Target", vec2_make(700.0, 150.0), 200.0);
+    match_state_init(&match);
+    ai_state_init(&target_ai_state, AI_PREFERRED_RANGE_M);
     sim_time_s = 0.0;
 
     printf("=====================================================\n");
@@ -154,7 +225,7 @@ int main(void)
     printf(" (War-Thunder-flavored mechanics, plain C, text console)\n");
     printf("=====================================================\n");
     print_help();
-    print_status(sim_time_s, &player, &target, target_ai);
+    print_status(sim_time_s, &player, &target, target_ai, &match);
 
     char line[256];
     int running = 1;
@@ -176,8 +247,7 @@ int main(void)
             tank_update_movement(&player, 0.0, 0.0, terrain_grip_at(player.position_m), TICK_DT);
             tank_update_turret(&player, 0.0, 0.0, TICK_DT);
             tank_tick_reload(&player, TICK_DT);
-            if (target_ai && target.alive) tank_update_movement(&target, target_throttle, target_steer, terrain_grip_at(target.position_m), TICK_DT);
-            sim_time_s += TICK_DT;
+            advance_tick(&player, &target, &target_ai_state, target_ai, &match, &depot, &sim_time_s, TICK_DT);
             continue;
         }
 
@@ -190,7 +260,7 @@ int main(void)
             running = 0;
 
         } else if (!strcmp(cmd, "p")) {
-            print_status(sim_time_s, &player, &target, target_ai);
+            print_status(sim_time_s, &player, &target, target_ai, &match);
 
         } else if (!strcmp(cmd, "m")) {
             print_map(&player, &target);
@@ -198,6 +268,8 @@ int main(void)
         } else if (!strcmp(cmd, "reset")) {
             tank_init_leopard2a7(&player, "Player", vec2_make(0.0, 0.0), 0.0);
             tank_init_generic_mbt(&target, "Target", vec2_make(700.0, 150.0), 200.0);
+            match_state_init(&match);
+            ai_state_init(&target_ai_state, AI_PREFERRED_RANGE_M);
             sim_time_s = 0.0;
             target_ai = 0;
             printf("Scenario reset.\n");
@@ -213,14 +285,19 @@ int main(void)
             printf("Selected %s (%d left).\n", ammo_get(AMMO_HE)->name, player.ammo_count[AMMO_HE]);
 
         } else if (!strcmp(cmd, "f")) {
-            combat_fire_shot(&player, &target);
+            int was_alive = target.alive;
+            combat_fire_shot(&player, &target, NULL);
+            if (was_alive && !target.alive) {
+                match.kills++;
+                match.respawn_timer_s = WAVE_RESPAWN_DELAY_S;
+                printf(">>> Kill #%d confirmed. Wave %d clear -- reinforcements incoming.\n", match.kills, match.wave);
+            }
             player.moved_this_tick = 0;
             player.turret_moved_this_tick = 0;
             tank_update_movement(&player, 0.0, 0.0, terrain_grip_at(player.position_m), TICK_DT);
             tank_update_turret(&player, 0.0, 0.0, TICK_DT);
             tank_tick_reload(&player, TICK_DT);
-            if (target_ai && target.alive) tank_update_movement(&target, target_throttle, target_steer, terrain_grip_at(target.position_m), TICK_DT);
-            sim_time_s += TICK_DT;
+            advance_tick(&player, &target, &target_ai_state, target_ai, &match, &depot, &sim_time_s, TICK_DT);
 
         } else if (!strcmp(cmd, "w") || !strcmp(cmd, "s") || !strcmp(cmd, "a") ||
                    !strcmp(cmd, "d") || !strcmp(cmd, "b") || !strcmp(cmd, "n")) {
@@ -240,14 +317,7 @@ int main(void)
                 tank_update_movement(&player, throttle, steer, terrain_grip_at(player.position_m), TICK_DT);
                 tank_update_turret(&player, 0.0, 0.0, TICK_DT);
                 tank_tick_reload(&player, TICK_DT);
-                if (target_ai && target.alive) {
-                    if ((rand() % 100) < 15) {
-                        target_throttle = clampd(((double)rand() / RAND_MAX) * 1.4 - 0.4, -1.0, 1.0);
-                        target_steer = ((double)rand() / RAND_MAX) * 2.0 - 1.0;
-                    }
-                    tank_update_movement(&target, target_throttle, target_steer, terrain_grip_at(target.position_m), TICK_DT);
-                }
-                sim_time_s += TICK_DT;
+                advance_tick(&player, &target, &target_ai_state, target_ai, &match, &depot, &sim_time_s, TICK_DT);
             }
 
         } else if (!strcmp(cmd, "j") || !strcmp(cmd, "l") || !strcmp(cmd, "i") || !strcmp(cmd, "k")) {
@@ -264,8 +334,7 @@ int main(void)
                 tank_update_movement(&player, 0.0, 0.0, terrain_grip_at(player.position_m), TICK_DT);
                 tank_update_turret(&player, turret_in, elev_in, TICK_DT);
                 tank_tick_reload(&player, TICK_DT);
-                if (target_ai && target.alive) tank_update_movement(&target, target_throttle, target_steer, terrain_grip_at(target.position_m), TICK_DT);
-                sim_time_s += TICK_DT;
+                advance_tick(&player, &target, &target_ai_state, target_ai, &match, &depot, &sim_time_s, TICK_DT);
             }
 
         } else if (!strcmp(cmd, "drive") && ntok >= 3) {
@@ -274,8 +343,7 @@ int main(void)
             tank_update_movement(&player, throttle, steer, terrain_grip_at(player.position_m), TICK_DT);
             tank_update_turret(&player, 0.0, 0.0, TICK_DT);
             tank_tick_reload(&player, TICK_DT);
-            if (target_ai && target.alive) tank_update_movement(&target, target_throttle, target_steer, terrain_grip_at(target.position_m), TICK_DT);
-            sim_time_s += TICK_DT;
+            advance_tick(&player, &target, &target_ai_state, target_ai, &match, &depot, &sim_time_s, TICK_DT);
 
         } else if (!strcmp(cmd, "aim") && ntok >= 3) {
             double turret_in = clampd(atof(tok[1]), -1.0, 1.0);
@@ -283,8 +351,7 @@ int main(void)
             tank_update_movement(&player, 0.0, 0.0, terrain_grip_at(player.position_m), TICK_DT);
             tank_update_turret(&player, turret_in, elev_in, TICK_DT);
             tank_tick_reload(&player, TICK_DT);
-            if (target_ai && target.alive) tank_update_movement(&target, target_throttle, target_steer, terrain_grip_at(target.position_m), TICK_DT);
-            sim_time_s += TICK_DT;
+            advance_tick(&player, &target, &target_ai_state, target_ai, &match, &depot, &sim_time_s, TICK_DT);
 
         } else if (!strcmp(cmd, "t") && ntok >= 2) {
             if (!strcmp(tok[1], "pos") && ntok >= 5) {
@@ -297,7 +364,7 @@ int main(void)
                 printf("Target turret set to %.0f (relative).\n", target.turret_azimuth_deg);
             } else if (!strcmp(tok[1], "ai") && ntok >= 3) {
                 target_ai = !strcmp(tok[2], "on");
-                printf("Target auto-drive: %s\n", target_ai ? "ON" : "OFF");
+                printf("Target AI (drives + returns fire): %s\n", target_ai ? "ON" : "OFF");
             } else {
                 printf("Usage: t pos <x> <y> <heading> | t turret <deg> | t ai on|off\n");
             }
@@ -308,6 +375,6 @@ int main(void)
     }
 
     printf("Simulation ended. Final status:\n");
-    print_status(sim_time_s, &player, &target, target_ai);
+    print_status(sim_time_s, &player, &target, target_ai, &match);
     return 0;
 }

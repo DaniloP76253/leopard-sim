@@ -126,18 +126,6 @@ static Vector3 vec3_lerp(Vector3 from, Vector3 to, float t)
     };
 }
 
-static Color color_lerp(Color a, Color b, float t)
-{
-    if (t < 0.0f) t = 0.0f;
-    if (t > 1.0f) t = 1.0f;
-    Color c;
-    c.r = (unsigned char)(a.r + (b.r - a.r) * t);
-    c.g = (unsigned char)(a.g + (b.g - a.g) * t);
-    c.b = (unsigned char)(a.b + (b.b - a.b) * t);
-    c.a = 255;
-    return c;
-}
-
 static float terrain_visual_height_at(Vec2 pos)
 {
     double logical = terrain_height_at(pos);
@@ -530,212 +518,48 @@ static void draw_impact_effects(const ImpactEffectList *list)
     }
 }
 
-/* ---------------------------------------------------------------------
- * Procedural textures -- no network/asset pipeline here, so everything
- * is generated in code: mottled ground, speckled rock, a blocky bunker
- * pattern, and a blotch camo for each side (different palettes so
- * player/enemy read apart at a glance even before you check the HUD).
- * ------------------------------------------------------------------- */
-
-static Image build_terrain_heightmap_image(void)
-{
-    const int width = 256;
-    const int height = 256;
-    Image image = GenImageColor(width, height, BLACK);
-
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            double world_x = ((double)x / (double)(width - 1) - 0.5) * 2400.0;
-            double world_y = ((double)y / (double)(height - 1) - 0.5) * 2400.0;
-            double h = terrain_height_at(vec2_make(world_x, world_y));
-            double normalized = clampd((h + 5.0) / 12.0, 0.0, 1.0);
-            int value = (int)(normalized * 255.0);
-            ImageDrawPixel(&image, x, y, (Color){ (unsigned char)value, (unsigned char)value, (unsigned char)value, 255 });
-        }
-    }
-
-    return image;
-}
-
-static Image build_ground_texture_image(void)
-{
-    const int size = 512;
-    Image noise = GenImagePerlinNoise(size, size, 0, 0, 4.0f);
-    Image img = GenImageColor(size, size, (Color){ 60, 74, 48, 255 });
-
-    Color grass_a = (Color){ 58, 78, 46, 255 };
-    Color grass_b = (Color){ 78, 92, 58, 255 };
-    Color dirt    = (Color){ 96, 78, 54, 255 };
-
-    for (int y = 0; y < size; y++) {
-        for (int x = 0; x < size; x++) {
-            Color n = GetImageColor(noise, x, y);
-            float t = n.r / 255.0f;
-            Color base = color_lerp(grass_a, grass_b, t);
-            if (t > 0.72f) base = color_lerp(base, dirt, (t - 0.72f) / 0.28f);
-            ImageDrawPixel(&img, x, y, base);
-        }
-    }
-
-    for (int i = 0; i < (size * size) / 40; i++) {
-        int x = rand() % size, y = rand() % size;
-        ImageDrawPixel(&img, x, y, (Color){ 70, 66, 60, 255 });
-    }
-
-    UnloadImage(noise);
-    return img;
-}
-
-static Image build_rock_texture_image(void)
-{
-    const int size = 128;
-    Image img = GenImageColor(size, size, (Color){ 110, 108, 100, 255 });
-    for (int i = 0; i < 90; i++) {
-        int cx = rand() % size, cy = rand() % size;
-        int r = 4 + rand() % 14;
-        int shade = rand() % 40;
-        Color c = { (unsigned char)(90 + shade), (unsigned char)(88 + shade), (unsigned char)(82 + shade), 255 };
-        ImageDrawCircle(&img, cx, cy, r, c);
-    }
-    return img;
-}
-
-static Image build_bunker_texture_image(void)
-{
-    const int size = 256;
-    Image img = GenImageColor(size, size, (Color){ 96, 92, 82, 255 });
-    for (int y = 0; y < size; y += 32) {
-        int offset = ((y / 32) % 2) * 32;
-        for (int x = -32; x < size; x += 64) {
-            Color shade = (((x + offset) / 64 + y / 32) % 2 == 0) ? (Color){ 88, 84, 74, 255 } : (Color){ 104, 100, 90, 255 };
-            ImageDrawRectangle(&img, x + offset, y, 58, 28, shade);
-        }
-    }
-    return img;
-}
-
-static Image build_camo_texture_image(Color base, Color blotch_a, Color blotch_b)
-{
-    const int size = 256;
-    Image img = GenImageColor(size, size, base);
-
-    for (int i = 0; i < 55; i++) {
-        int cx = rand() % size, cy = rand() % size;
-        int r = 10 + rand() % 26;
-        Color c = (rand() % 2) ? blotch_a : blotch_b;
-        ImageDrawCircle(&img, cx, cy, r, c);
-        /* a smaller overlapping circle breaks up the perfect-circle
-         * silhouette so blotches read as organic instead of polka-dots */
-        int r2 = r / 2 + rand() % 8;
-        int ox = cx + (rand() % (r + 1)) - r / 2;
-        int oy = cy + (rand() % (r + 1)) - r / 2;
-        ImageDrawCircle(&img, ox, oy, r2, c);
-    }
-
-    /* faint vertical wear/rain streaks */
-    for (int i = 0; i < 10; i++) {
-        int x = rand() % size;
-        int y0 = rand() % (size / 2);
-        int len = 40 + rand() % 90;
-        Color streak = color_lerp(base, BLACK, 0.18f);
-        ImageDrawRectangle(&img, x, y0, 1 + rand() % 2, len, streak);
-    }
-
-    for (int i = 0; i < (size * size) / 30; i++) {
-        int x = rand() % size, y = rand() % size;
-        Color c = GetImageColor(img, x, y);
-        int r = (int)c.r - 10; if (r < 0) r = 0;
-        int g = (int)c.g - 10; if (g < 0) g = 0;
-        int b = (int)c.b - 10; if (b < 0) b = 0;
-        ImageDrawPixel(&img, x, y, (Color){ (unsigned char)r, (unsigned char)g, (unsigned char)b, 255 });
-    }
-
-    return img;
-}
-
-static Image build_metal_texture_image(void)
-{
-    const int size = 128;
-    Image img = GenImageColor(size, size, (Color){ 112, 114, 110, 255 });
-
-    for (int i = 0; i < (size * size) / 8; i++) {
-        int x = rand() % size, y = rand() % size;
-        int shade = (rand() % 30) - 15;
-        Color c = GetImageColor(img, x, y);
-        int r = (int)c.r + shade; if (r < 0) r = 0; if (r > 255) r = 255;
-        int g = (int)c.g + shade; if (g < 0) g = 0; if (g > 255) g = 255;
-        int b = (int)c.b + shade; if (b < 0) b = 0; if (b > 255) b = 255;
-        ImageDrawPixel(&img, x, y, (Color){ (unsigned char)r, (unsigned char)g, (unsigned char)b, 255 });
-    }
-
-    /* a few horizontal machining/wear bands */
-    for (int i = 0; i < 6; i++) {
-        int y = rand() % size;
-        ImageDrawRectangle(&img, 0, y, size, 1 + rand() % 2, (Color){ 80, 82, 78, 255 });
-    }
-
-    return img;
-}
-
 static void init_scene_assets(SceneAssets *assets)
 {
     memset(assets, 0, sizeof(*assets));
 
-    Image terrain_heightmap = build_terrain_heightmap_image();
-    Mesh terrain_mesh = GenMeshHeightmap(terrain_heightmap, (Vector3){ 2400.0f, 20.0f, 2400.0f });
-    assets->terrain_model = LoadModelFromMesh(terrain_mesh);
-    Image ground_image = build_ground_texture_image();
-    assets->terrain_texture = LoadTextureFromImage(ground_image);
+    assets->terrain_model = LoadModel("assets/models/generated/terrain.obj");
+    assets->terrain_texture = LoadTexture("assets/textures/terrain_ground.png");
     SetMaterialTexture(&assets->terrain_model.materials[0], MATERIAL_MAP_ALBEDO, assets->terrain_texture);
-    UnloadImage(ground_image);
-    UnloadImage(terrain_heightmap);
 
-    Mesh bunker_mesh = GenMeshCube(10.0f, 4.0f, 10.0f);
-    assets->bunker_model = LoadModelFromMesh(bunker_mesh);
-    Image bunker_image = build_bunker_texture_image();
-    assets->bunker_texture = LoadTextureFromImage(bunker_image);
+    assets->bunker_model = LoadModel("assets/models/generated/bunker.obj");
+    assets->bunker_texture = LoadTexture("assets/textures/bunker.png");
     SetMaterialTexture(&assets->bunker_model.materials[0], MATERIAL_MAP_ALBEDO, assets->bunker_texture);
-    UnloadImage(bunker_image);
 
-    Mesh rock_mesh = GenMeshSphere(4.5f, 16, 16);
-    assets->rock_model = LoadModelFromMesh(rock_mesh);
-    Image rock_image = build_rock_texture_image();
-    assets->rock_texture = LoadTextureFromImage(rock_image);
+    assets->rock_model = LoadModel("assets/models/generated/rock.obj");
+    assets->rock_texture = LoadTexture("assets/textures/rock.png");
     SetMaterialTexture(&assets->rock_model.materials[0], MATERIAL_MAP_ALBEDO, assets->rock_texture);
-    UnloadImage(rock_image);
 
-    assets->player_hull_model = LoadModel("hull.obj");
-    assets->player_turret_model = LoadModel("turret.obj");
-    Image player_camo = build_camo_texture_image((Color){ 74, 86, 58, 255 }, (Color){ 54, 64, 42, 255 }, (Color){ 96, 100, 74, 255 });
-    assets->player_camo_texture = LoadTextureFromImage(player_camo);
+    assets->player_hull_model = LoadModel("assets/models/hull.obj");
+    assets->player_turret_model = LoadModel("assets/models/turret.obj");
+    assets->player_camo_texture = LoadTexture("assets/textures/player_camo.png");
     SetMaterialTexture(&assets->player_hull_model.materials[0], MATERIAL_MAP_ALBEDO, assets->player_camo_texture);
     SetMaterialTexture(&assets->player_turret_model.materials[0], MATERIAL_MAP_ALBEDO, assets->player_camo_texture);
-    UnloadImage(player_camo);
 
-    assets->enemy_hull_model = LoadModel("hull.obj");
-    assets->enemy_turret_model = LoadModel("turret.obj");
-    Image enemy_camo = build_camo_texture_image((Color){ 150, 124, 88, 255 }, (Color){ 120, 96, 66, 255 }, (Color){ 168, 140, 104, 255 });
-    assets->enemy_camo_texture = LoadTextureFromImage(enemy_camo);
+    assets->enemy_hull_model = LoadModel("assets/models/hull.obj");
+    assets->enemy_turret_model = LoadModel("assets/models/turret.obj");
+    assets->enemy_camo_texture = LoadTexture("assets/textures/enemy_camo.png");
     SetMaterialTexture(&assets->enemy_hull_model.materials[0], MATERIAL_MAP_ALBEDO, assets->enemy_camo_texture);
     SetMaterialTexture(&assets->enemy_turret_model.materials[0], MATERIAL_MAP_ALBEDO, assets->enemy_camo_texture);
-    UnloadImage(enemy_camo);
 
     /* barrel/mantlet/tracks are shared between both sides -- bare metal
      * and dark rubber/steel don't really vary by camo scheme */
-    Image metal_image = build_metal_texture_image();
-    assets->metal_texture = LoadTextureFromImage(metal_image);
-    UnloadImage(metal_image);
+    assets->metal_texture = LoadTexture("assets/textures/metal.png");
 
-    assets->barrel_model = LoadModelFromMesh(GenMeshCylinder(0.09f, 3.3f, 10));
+    assets->barrel_model = LoadModel("assets/models/generated/barrel.obj");
     SetMaterialTexture(&assets->barrel_model.materials[0], MATERIAL_MAP_ALBEDO, assets->metal_texture);
 
-    assets->muzzle_brake_model = LoadModelFromMesh(GenMeshCylinder(0.14f, 0.35f, 10));
+    assets->muzzle_brake_model = LoadModel("assets/models/generated/muzzle_brake.obj");
     SetMaterialTexture(&assets->muzzle_brake_model.materials[0], MATERIAL_MAP_ALBEDO, assets->metal_texture);
 
-    assets->mantlet_model = LoadModelFromMesh(GenMeshCube(0.7f, 0.6f, 0.5f));
+    assets->mantlet_model = LoadModel("assets/models/generated/mantlet.obj");
     SetMaterialTexture(&assets->mantlet_model.materials[0], MATERIAL_MAP_ALBEDO, assets->metal_texture);
 
-    assets->track_model = LoadModelFromMesh(GenMeshCube(5.6f, 0.6f, 0.7f));
+    assets->track_model = LoadModel("assets/models/generated/track.obj");
     SetMaterialTexture(&assets->track_model.materials[0], MATERIAL_MAP_ALBEDO, assets->metal_texture);
 }
 

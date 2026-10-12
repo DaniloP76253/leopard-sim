@@ -47,6 +47,11 @@ void tank_init_leopard2a7(Tank *t, const char *name, Vec2 pos, double heading_de
     t->hull_pitch_deg = 0.0;
     t->hull_roll_deg  = 0.0;
     t->hull_bounce_m  = 0.0;
+    t->left_track_speed_ms = 0.0;
+    t->right_track_speed_ms = 0.0;
+    t->left_track_phase_m = 0.0;
+    t->right_track_phase_m = 0.0;
+    memset(t->road_wheel_compression_m, 0, sizeof(t->road_wheel_compression_m));
 
     t->current_ammo = AMMO_APFSDS;
     t->ammo_count[AMMO_APFSDS] = 20; t->ammo_max[AMMO_APFSDS] = 20;
@@ -103,6 +108,11 @@ void tank_init_generic_mbt(Tank *t, const char *name, Vec2 pos, double heading_d
     t->hull_pitch_deg = 0.0;
     t->hull_roll_deg  = 0.0;
     t->hull_bounce_m  = 0.0;
+    t->left_track_speed_ms = 0.0;
+    t->right_track_speed_ms = 0.0;
+    t->left_track_phase_m = 0.0;
+    t->right_track_phase_m = 0.0;
+    memset(t->road_wheel_compression_m, 0, sizeof(t->road_wheel_compression_m));
 
     t->current_ammo = AMMO_APFSDS;
     t->ammo_count[AMMO_APFSDS] = 20; t->ammo_max[AMMO_APFSDS] = 20;
@@ -213,6 +223,23 @@ void tank_update_movement(Tank *t, double throttle, double steer, double terrain
     double turn_rate_dps = steer * t->max_pivot_rate_dps * turn_factor * (0.3 + 0.7 * track_factor);
 
     t->heading_deg = norm_deg(t->heading_deg + turn_rate_dps * dt);
+
+    /* Approximate the two track speeds from the hull speed plus the
+     * current turn rate. This gives the visual belt motion a real link
+     * to the skid-steer physics: when the tank pivots, the inside track
+     * slows down and the outside track speeds up. */
+    const double track_half_gauge_m = 1.9;
+    double angular_speed_rps = deg2rad(turn_rate_dps);
+    double track_offset_ms = angular_speed_rps * track_half_gauge_m;
+    if (tracks_destroyed) {
+        t->left_track_speed_ms = 0.0;
+        t->right_track_speed_ms = 0.0;
+    } else {
+        t->left_track_speed_ms = t->speed_ms - track_offset_ms;
+        t->right_track_speed_ms = t->speed_ms + track_offset_ms;
+    }
+    t->left_track_phase_m += t->left_track_speed_ms * dt;
+    t->right_track_phase_m += t->right_track_speed_ms * dt;
 
     double heading_rad = deg2rad(t->heading_deg);
     Vec2 forward_dir = vec2_make(cos(heading_rad), sin(heading_rad));

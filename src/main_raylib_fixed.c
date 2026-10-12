@@ -47,6 +47,20 @@
 
 #define MAX_IMPACT_EFFECTS 8
 
+static const float ROAD_WHEEL_X[5] = { -1.95f, -0.98f, 0.00f, 0.98f, 1.95f };
+static const float ROAD_WHEEL_RADIUS = 0.42f;
+static const float ROAD_WHEEL_BASE_Y = -0.62f;
+static const float RETURN_ROLLER_X[2] = { -0.92f, 0.92f };
+static const float RETURN_ROLLER_RADIUS = 0.24f;
+static const float RETURN_ROLLER_BASE_Y = 0.34f;
+static const float IDLER_X = -2.78f;
+static const float SPROCKET_X = 2.78f;
+static const float IDLER_RADIUS = 0.66f;
+static const float SPROCKET_RADIUS = 0.78f;
+static const float TRACK_HALF_GAUGE = 1.95f;
+static const int TRACK_LINK_COUNT = 56;
+static const Vector3 TRACK_LINK_SCALE = { 0.10f, 0.16f, 0.33f };
+
 typedef struct {
     Model terrain_model;
     Model bunker_model;
@@ -170,6 +184,22 @@ static void update_chassis_pose(Tank *t)
     t->hull_pitch_deg = lerpf((float)t->hull_pitch_deg, (float)target_pitch, 0.12f);
     t->hull_roll_deg  = lerpf((float)t->hull_roll_deg,  (float)target_roll,  0.12f);
     t->hull_bounce_m  = lerpf((float)t->hull_bounce_m,  (float)((center - floor(center)) * 0.15), 0.08f);
+
+    Vector3 hull_pos = tank_render_pos(t, PLAYER_HEIGHT + (float)t->hull_bounce_m);
+    for (int side = 0; side < 2; side++) {
+        float side_sign = (side == 0) ? -1.0f : 1.0f;
+        Vec2 side_offset = vec2_scale(right, 1.9 * side_sign);
+        for (int i = 0; i < 5; i++) {
+            Vec2 wheel_pos = vec2_add(t->position_m, vec2_add(vec2_scale(forward, ROAD_WHEEL_X[i]), side_offset));
+            float ground = terrain_visual_height_at(wheel_pos);
+            float neutral_center_y = hull_pos.y + ROAD_WHEEL_BASE_Y;
+            float desired_center_y = ground + ROAD_WHEEL_RADIUS;
+            double compression = desired_center_y - neutral_center_y;
+            if (compression < 0.0) compression = 0.0;
+            if (compression > 0.55) compression = 0.55;
+            t->road_wheel_compression_m[side][i] = compression;
+        }
+    }
 }
 
 static void print_status(const Tank *p, const Tank *t, int target_ai, double sim_time_s, const MatchState *match)
@@ -237,11 +267,157 @@ static void axis_angle_from_y_to(Vector3 dir, Vector3 *out_axis, float *out_angl
     *out_angle_deg = (float)rad2deg((double)acosf(dotv));
 }
 
+static void axis_angle_from_x_to(Vector3 dir, Vector3 *out_axis, float *out_angle_deg)
+{
+    float len = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+    if (len < 1e-6f) { *out_axis = (Vector3){ 0.0f, 1.0f, 0.0f }; *out_angle_deg = 0.0f; return; }
+    Vector3 d = { dir.x / len, dir.y / len, dir.z / len };
+
+    Vector3 axis = { 0.0f, -d.z, d.y }; /* cross((1,0,0), d) */
+    float axis_len = sqrtf(axis.y * axis.y + axis.z * axis.z);
+    if (axis_len < 1e-5f) {
+        *out_axis = (Vector3){ 0.0f, 1.0f, 0.0f };
+        *out_angle_deg = (d.x > 0.0f) ? 0.0f : 180.0f;
+        return;
+    }
+    *out_axis = (Vector3){ 0.0f, axis.y / axis_len, axis.z / axis_len };
+    float dotv = d.x;
+    if (dotv > 1.0f) dotv = 1.0f;
+    if (dotv < -1.0f) dotv = -1.0f;
+    *out_angle_deg = (float)rad2deg((double)acosf(dotv));
+}
+
 static void hull_basis_vectors(const Tank *t, Vector3 *out_forward, Vector3 *out_right)
 {
     float h = (float)deg2rad(t->heading_deg);
     *out_forward = (Vector3){ cosf(h), 0.0f, sinf(h) };
     *out_right   = (Vector3){ -sinf(h), 0.0f, cosf(h) };
+}
+
+static float wrap_positive(float value, float period)
+{
+    float wrapped = fmodf(value, period);
+    if (wrapped < 0.0f) wrapped += period;
+    return wrapped;
+}
+
+static Vector3 tank_local_to_world(Vector3 origin, Vector3 forward_dir, Vector3 right_dir, Vector3 local)
+{
+    return (Vector3){
+        origin.x + forward_dir.x * local.x + right_dir.x * local.z,
+        origin.y + local.y,
+        origin.z + forward_dir.z * local.x + right_dir.z * local.z
+    };
+}
+
+static float track_profile_from_points(float x, const float *points_x, const float *points_y, int count, float sag)
+{
+    if (count <= 0) return 0.0f;
+    if (x <= points_x[0]) return points_y[0];
+    if (x >= points_x[count - 1]) return points_y[count - 1];
+    for (int i = 0; i < count - 1; i++) {
+        float x0 = points_x[i];
+        float x1 = points_x[i + 1];
+        if (x >= x0 && x <= x1) {
+            float t = (x1 - x0) > 1e-6f ? (x - x0) / (x1 - x0) : 0.0f;
+            float y = lerpf(points_y[i], points_y[i + 1], t);
+            y -= sag * 4.0f * t * (1.0f - t);
+            return y;
+        }
+    }
+    return points_y[count - 1];
+}
+
+static void draw_wheel_disc(Vector3 center, Vector3 axle_dir, float radius, float width, int sides, Color tint)
+{
+    Vector3 half = vec3_scale(axle_dir, width * 0.5f);
+    DrawCylinderEx(vec3_add(center, (Vector3){ -half.x, -half.y, -half.z }),
+                   vec3_add(center, half),
+                   radius, radius, sides, tint);
+}
+
+static Vector3 tank_local_dir_to_world(Vector3 forward_dir, Vector3 right_dir, Vector3 local_dir)
+{
+    return (Vector3){
+        forward_dir.x * local_dir.x + right_dir.x * local_dir.z,
+        local_dir.y,
+        forward_dir.z * local_dir.x + right_dir.z * local_dir.z
+    };
+}
+
+static void draw_track_loop_side(Model track_model, Vector3 origin,
+                                 Vector3 forward_dir, Vector3 right_dir, float side_sign,
+                                 float phase_m, const double wheel_compression[5], Color tint)
+{
+    const float local_z = TRACK_HALF_GAUGE * side_sign;
+    const float rear_x = IDLER_X;
+    const float front_x = SPROCKET_X;
+    const float rear_top_y = 0.38f;
+    const float front_top_y = 0.40f;
+    const float rear_bottom_y = -1.04f;
+    const float front_bottom_y = -1.02f;
+    const float arc_len_rear = PI * IDLER_RADIUS;
+    const float arc_len_front = PI * SPROCKET_RADIUS;
+    const float run_len_top = fabsf(front_x - rear_x);
+    const float run_len_bottom = fabsf(front_x - rear_x);
+    const float total_len = arc_len_rear + run_len_top + arc_len_front + run_len_bottom;
+    const float link_step = total_len / (float)TRACK_LINK_COUNT;
+
+    float top_support_x[4] = { rear_x, RETURN_ROLLER_X[0], RETURN_ROLLER_X[1], front_x };
+    float top_support_y[4] = {
+        rear_top_y,
+        RETURN_ROLLER_BASE_Y + 0.12f + 0.08f * (float)wheel_compression[1],
+        RETURN_ROLLER_BASE_Y + 0.12f + 0.08f * (float)wheel_compression[3],
+        front_top_y
+    };
+    float bottom_support_x[5] = { front_x, ROAD_WHEEL_X[4], ROAD_WHEEL_X[2], ROAD_WHEEL_X[0], rear_x };
+    float bottom_support_y[5] = {
+        front_bottom_y,
+        ROAD_WHEEL_BASE_Y + (float)wheel_compression[4] + 0.48f,
+        ROAD_WHEEL_BASE_Y + (float)wheel_compression[2] + 0.44f,
+        ROAD_WHEEL_BASE_Y + (float)wheel_compression[0] + 0.48f,
+        rear_bottom_y
+    };
+
+    for (int i = 0; i < TRACK_LINK_COUNT; i++) {
+        float s = wrap_positive(phase_m + (i + 0.5f) * link_step, total_len);
+        Vector3 local_pos = { 0.0f, 0.0f, local_z };
+        Vector3 local_tangent = { 1.0f, 0.0f, 0.0f };
+
+        if (s < arc_len_rear) {
+            float t = s / arc_len_rear;
+            float angle = deg2rad(270.0f + 180.0f * t);
+            local_pos.x = rear_x + IDLER_RADIUS * cosf(angle);
+            local_pos.y = rear_bottom_y + IDLER_RADIUS * sinf(angle);
+            local_tangent = (Vector3){ -sinf(angle), cosf(angle), 0.0f };
+        } else if (s < arc_len_rear + run_len_top) {
+            float t = (s - arc_len_rear) / run_len_top;
+            float x = lerpf(rear_x, front_x, t);
+            float sag = 0.16f + 0.08f * (float)(wheel_compression[1] + wheel_compression[2] + wheel_compression[3]) / 3.0f;
+            local_pos.x = x;
+            local_pos.y = track_profile_from_points(x, top_support_x, top_support_y, 4, sag);
+            local_tangent = (Vector3){ 1.0f, (top_support_y[3] - top_support_y[0]) * 0.012f, 0.0f };
+        } else if (s < arc_len_rear + run_len_top + arc_len_front) {
+            float t = (s - arc_len_rear - run_len_top) / arc_len_front;
+            float angle = deg2rad(90.0f - 180.0f * t);
+            local_pos.x = front_x + SPROCKET_RADIUS * cosf(angle);
+            local_pos.y = front_bottom_y + SPROCKET_RADIUS * sinf(angle);
+            local_tangent = (Vector3){ -sinf(angle), cosf(angle), 0.0f };
+        } else {
+            float t = (s - arc_len_rear - run_len_top - arc_len_front) / run_len_bottom;
+            float x = lerpf(front_x, rear_x, t);
+            float sag = 0.12f + 0.08f * (float)wheel_compression[2];
+            local_pos.x = x;
+            local_pos.y = track_profile_from_points(x, bottom_support_x, bottom_support_y, 5, sag);
+            local_tangent = (Vector3){ -1.0f, (bottom_support_y[4] - bottom_support_y[0]) * 0.012f, 0.0f };
+        }
+
+        Vector3 world_pos = tank_local_to_world(origin, forward_dir, right_dir, local_pos);
+        Vector3 world_tangent = tank_local_dir_to_world(forward_dir, right_dir, local_tangent);
+        Vector3 axis; float angle_deg;
+        axis_angle_from_x_to(world_tangent, &axis, &angle_deg);
+        DrawModelEx(track_model, world_pos, axis, angle_deg, TRACK_LINK_SCALE, tint);
+    }
 }
 
 /* Real hull/turret rotation, texture and all -- DrawCubeV (the original
@@ -263,32 +439,37 @@ static void draw_tank_3d(const Tank *t, Model hull_model, Model turret_model,
     float hull_yaw = -(float)t->heading_deg;
     DrawModelEx(hull_model, pos, up_axis, hull_yaw, unit_scale, WHITE);
 
-    /* tracks flank the hull and share its yaw exactly -- they run
-     * parallel to the hull, so no extra rotation math is needed beyond
-     * what the hull itself already uses */
     Vector3 forward_dir, right_dir;
     hull_basis_vectors(t, &forward_dir, &right_dir);
-    Vector3 track_offset = vec3_scale(right_dir, 1.9f);
-    Vector3 track_l = { pos.x - track_offset.x, pos.y - 0.6f, pos.z - track_offset.z };
-    Vector3 track_r = { pos.x + track_offset.x, pos.y - 0.6f, pos.z + track_offset.z };
     Color track_tint = (Color){ 40, 40, 42, 255 };
-    DrawModelEx(track_model, track_l, up_axis, hull_yaw, unit_scale, track_tint);
-    DrawModelEx(track_model, track_r, up_axis, hull_yaw, unit_scale, track_tint);
+    draw_track_loop_side(track_model, pos, forward_dir, right_dir, -1.0f, (float)t->left_track_phase_m, t->road_wheel_compression_m[0], track_tint);
+    draw_track_loop_side(track_model, pos, forward_dir, right_dir,  1.0f, (float)t->right_track_phase_m, t->road_wheel_compression_m[1], track_tint);
 
-    /* road wheels: plain spheres, deliberately -- a sphere looks the
-     * same from every angle, so these need zero orientation math and
-     * carry zero risk of the "which way did that rotate" bugs the
-     * barrel/tracks needed care for */
     const int wheel_count = 5;
-    const float wheel_spacing = 1.05f;
-    const float wheel_radius = 0.42f;
     Color wheel_color = (Color){ 26, 26, 28, 255 };
     for (int i = 0; i < wheel_count; i++) {
-        float along = (i - (wheel_count - 1) * 0.5f) * wheel_spacing;
-        Vector3 along_offset = vec3_scale(forward_dir, along);
-        DrawSphere((Vector3){ track_l.x + along_offset.x, track_l.y, track_l.z + along_offset.z }, wheel_radius, wheel_color);
-        DrawSphere((Vector3){ track_r.x + along_offset.x, track_r.y, track_r.z + along_offset.z }, wheel_radius, wheel_color);
+        Vector3 wheel_center_l = vec3_add(pos, vec3_add(vec3_scale(forward_dir, ROAD_WHEEL_X[i]), vec3_scale(right_dir, -1.9f)));
+        Vector3 wheel_center_r = vec3_add(pos, vec3_add(vec3_scale(forward_dir, ROAD_WHEEL_X[i]), vec3_scale(right_dir, 1.9f)));
+        wheel_center_l.y += (float)t->road_wheel_compression_m[0][i];
+        wheel_center_r.y += (float)t->road_wheel_compression_m[1][i];
+        draw_wheel_disc(wheel_center_l, right_dir, ROAD_WHEEL_RADIUS, 0.18f, 16, wheel_color);
+        draw_wheel_disc(wheel_center_r, right_dir, ROAD_WHEEL_RADIUS, 0.18f, 16, wheel_color);
     }
+
+    /* return rollers and drive sprocket/idler to make the track layout
+     * read as a tracked vehicle instead of just a floating belt */
+    Vector3 roller_l = vec3_add(pos, vec3_add(vec3_scale(forward_dir, RETURN_ROLLER_X[0]), vec3_scale(right_dir, -TRACK_HALF_GAUGE)));
+    Vector3 roller_r = vec3_add(pos, vec3_add(vec3_scale(forward_dir, RETURN_ROLLER_X[1]), vec3_scale(right_dir, TRACK_HALF_GAUGE)));
+    Vector3 sprocket_l = vec3_add(pos, vec3_add(vec3_scale(forward_dir, SPROCKET_X), vec3_scale(right_dir, -TRACK_HALF_GAUGE)));
+    Vector3 idler_l = vec3_add(pos, vec3_add(vec3_scale(forward_dir, IDLER_X), vec3_scale(right_dir, -TRACK_HALF_GAUGE)));
+    Vector3 sprocket_r = vec3_add(pos, vec3_add(vec3_scale(forward_dir, SPROCKET_X), vec3_scale(right_dir, TRACK_HALF_GAUGE)));
+    Vector3 idler_r = vec3_add(pos, vec3_add(vec3_scale(forward_dir, IDLER_X), vec3_scale(right_dir, TRACK_HALF_GAUGE)));
+    draw_wheel_disc(roller_l, right_dir, RETURN_ROLLER_RADIUS, 0.12f, 12, (Color){ 48, 48, 50, 255 });
+    draw_wheel_disc(roller_r, right_dir, RETURN_ROLLER_RADIUS, 0.12f, 12, (Color){ 48, 48, 50, 255 });
+    draw_wheel_disc(sprocket_l, right_dir, SPROCKET_RADIUS, 0.18f, 16, (Color){ 58, 58, 62, 255 });
+    draw_wheel_disc(sprocket_r, right_dir, SPROCKET_RADIUS, 0.18f, 16, (Color){ 58, 58, 62, 255 });
+    draw_wheel_disc(idler_l, right_dir, IDLER_RADIUS, 0.18f, 16, (Color){ 54, 54, 58, 255 });
+    draw_wheel_disc(idler_r, right_dir, IDLER_RADIUS, 0.18f, 16, (Color){ 54, 54, 58, 255 });
 
     Vector3 turret_pos = { pos.x, pos.y + 1.0f, pos.z };
     float turret_yaw = -(float)tank_absolute_turret_azimuth_deg(t);

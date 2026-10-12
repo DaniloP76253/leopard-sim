@@ -46,6 +46,11 @@ typedef struct {
     double hull_pitch_deg;
     double hull_roll_deg;
     double hull_bounce_m;
+    double left_track_speed_ms;
+    double right_track_speed_ms;
+    double left_track_phase_m;
+    double right_track_phase_m;
+    double road_wheel_compression_m[2][5];
 
     AmmoTypeId current_ammo;
     int ammo_count[AMMO_TYPE_COUNT];

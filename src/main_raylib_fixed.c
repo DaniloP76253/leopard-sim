@@ -1,3 +1,4 @@
+// src/main_raylib_fixed.c
 #include "raylib.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,7 @@
 #include "camera_sys.h"
 #include "render_tank.h"
 
+// Definición de constantes
 #define SIM_DT_MAX 0.05
 #define AI_PREFERRED_RANGE_M 350.0
 #define WAVE_ORIGIN_X          0.0
@@ -29,6 +31,7 @@
 #define SUPPLY_RADIUS_M       20.0
 #define SUPPLY_HEAL_PER_S      8.0
 
+// Función para determinar si el cañón del tanque tiene visión clara de un objetivo
 static int turret_has_line_of_sight(const Tank *shooter, const Tank *target) {
     Vector3 shooter_gun = vec3_add(tank_combat_pos(shooter, PLAYER_HEIGHT), (Vector3){ 0.0f, 0.4f, 0.0f });
     Vector3 target_center = vec3_add(tank_combat_pos(target, PLAYER_HEIGHT), (Vector3){ 0.0f, 0.5f, 0.0f });
@@ -40,14 +43,16 @@ int main(void) {
     srand((unsigned)time(NULL));
     ammo_init_table();
 
+    // Verificación de la sesión gráfica
     const char *display = getenv("DISPLAY");
     const char *wayland_display = getenv("WAYLAND_DISPLAY");
     if ((display == NULL || display[0] == '\0') &&
         (wayland_display == NULL || wayland_display[0] == '\0')) {
-        fprintf(stderr, "Raylib 3D needs a graphical desktop session (Wayland or X11).\n");
+        fprintf(stderr, "Raylib 3D necesita una sesión gráfica (Wayland o X11).\n");
         return 1;
     }
 
+    // Inicialización de tanques y escena
     Tank player, target;
     tank_init_leopard2a7(&player, "Player", vec2_make(0.0, 0.0), 0.0);
     tank_init_generic_mbt(&target, "Target", vec2_make(700.0, 150.0), 200.0);
@@ -58,6 +63,7 @@ int main(void) {
     DisableCursor();
     init_scene_assets(&assets);
 
+    // Inicialización de estados y variables
     const int target_ai = 1;
     double sim_time_s = 0.0;
     int gunner_sight_active = 0;
@@ -82,10 +88,12 @@ int main(void) {
     float orbit_pitch_deg = CAMERA_BASE_PITCH;
     float orbit_distance = CAMERA_BASE_DISTANCE;
 
+    // Bucle principal del juego
     while (!WindowShouldClose()) {
         double dt = GetFrameTime();
         if (dt > SIM_DT_MAX) dt = SIM_DT_MAX;
 
+        // Manejo de eventos de teclado
         if (IsKeyPressed(KEY_R)) {
             tank_init_leopard2a7(&player, "Player", vec2_make(0.0, 0.0), 0.0);
             tank_init_generic_mbt(&target, "Target", vec2_make(700.0, 150.0), 200.0);
@@ -103,6 +111,7 @@ int main(void) {
         if (IsKeyPressed(KEY_TWO)) player.current_ammo = AMMO_HEAT;
         if (IsKeyPressed(KEY_THREE)) player.current_ammo = AMMO_HE;
 
+        // Actualización de controles del jugador
         double throttle = 0.0, steer = 0.0;
         if (IsKeyDown(KEY_W)) throttle += 1.0;
         if (IsKeyDown(KEY_S)) throttle -= 1.0;
@@ -118,11 +127,13 @@ int main(void) {
         double player_turret = 0.0, player_elev = 0.0;
         turret_input_toward(&player, ctrl.desired_turret_azimuth_deg, ctrl.desired_gun_elevation_deg, dt, &player_turret, &player_elev);
 
+        // Actualización de movimiento y estado del tanque del jugador
         tank_update_movement(&player, throttle, steer, terrain_grip_at(player.position_m), dt);
         tank_update_turret(&player, player_turret, player_elev, dt);
         tank_tick_reload(&player, dt);
         update_chassis_pose(&player);
 
+        // Actualización del tanque objetivo
         if (target.alive) {
             AiCommand cmd = ai_compute_command(&target_ai_state, &target, &player, dt);
             tank_update_movement(&target, cmd.throttle, cmd.steer, terrain_grip_at(target.position_m), dt);
@@ -145,6 +156,7 @@ int main(void) {
             }
         }
 
+        // Manejo de disparo
         if ((IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsKeyPressed(KEY_SPACE)) && tank_can_fire(&player)) {
             CombatShotResult result;
             combat_fire_shot(&player, &target, &result);
@@ -157,17 +169,20 @@ int main(void) {
         }
         camera_kick = fmaxf(camera_kick - (float)dt * 4.0f, 0.0f);
 
+        // Manejo de recarga y reparación en el depósito
         if (match_try_resupply(&player, &depot, dt)) {
             printf(">>> %s fully resupplied and repaired at the depot.\n", player.name);
         }
         update_impact_effects(&effects, (float)dt);
 
+        // Actualización de la cámara
         if (gunner_sight_active) {
             update_gunner_camera(&camera, &player, camera_kick);
         } else {
             update_chase_camera(&camera, &player, &ctrl, &orbit_yaw_deg, &orbit_pitch_deg, &orbit_distance, camera_kick);
         }
 
+        // Renderizado de los tanques y efectos
         Vector3 turret_pos_now = tank_render_pos(&player, PLAYER_HEIGHT + 1.0f + (float)player.hull_bounce_m);
         Vector3 boresight_point = vec3_add(turret_pos_now, vec3_scale(tank_boresight_dir(&player), 260.0f));
 
@@ -176,7 +191,7 @@ int main(void) {
 
         BeginMode3D(camera);
         DrawModel(assets.terrain_model, (Vector3){ -1200.0f, 0.0f, -1200.0f }, 1.0f, WHITE);
-        DrawModelEx(assets.bunker_model, (Vector3){ 520.0f, terrain_visual_height_at(vec2_make(520.0, -120.0)) + 2.0f, -120.0f },
+        DrawModelEx(assets.bunker_model, (Vector3){ 520.0f, terrain_visual_height_at(vec2_make(520.0, -120.0)) + 2.0f, -1200.0f },
                     (Vector3){ 0.0f, 1.0f, 0.0f }, 5.0f, (Vector3){ 1.0f, 1.0f, 1.0f }, WHITE);
         DrawModelEx(assets.bunker_model, (Vector3){ 360.0f, terrain_visual_height_at(vec2_make(360.0, 180.0)) + 2.0f, 180.0f },
                     (Vector3){ 0.0f, 1.0f, 0.0f }, -12.0f, (Vector3){ 0.8f, 0.8f, 0.8f }, WHITE);
@@ -200,6 +215,7 @@ int main(void) {
         draw_impact_effects(&effects);
         EndMode3D();
 
+        // Renderizado de la interfaz de usuario
         Color aim_color = turret_has_line_of_sight(&player, &target) ? RAYWHITE : RED;
         if (gunner_sight_active) {
             draw_gunner_sight_overlay(&player);
@@ -245,6 +261,7 @@ int main(void) {
         sim_time_s += dt;
     }
 
+    // Liberación de recursos y cierre de la ventana
     unload_scene_assets(&assets);
     CloseWindow();
     return 0;

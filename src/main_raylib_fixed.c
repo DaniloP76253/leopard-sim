@@ -14,7 +14,7 @@
 #include "terrain.h"
 
 #define SIM_DT_MAX 0.05
-#define PLAYER_HEIGHT 1.45f
+#define PLAYER_HEIGHT 1.0f
 
 #define CAMERA_BASE_DISTANCE 18.0f
 #define CAMERA_MIN_DISTANCE   8.0f
@@ -386,10 +386,16 @@ static void draw_track_loop_side(Model track_model, Vector3 origin,
 
         if (s < arc_len_rear) {
             float t = s / arc_len_rear;
-            float angle = deg2rad(270.0f + 180.0f * t);
+            // Disminuir el ángulo para envolver la rueda trasera por la izquierda
+            float angle = deg2rad(270.0f - 180.0f * t);
+            // Elevar el pivote de la curva desde el fondo de la oruga hasta el eje de la rueda
+            float rear_center_y = rear_bottom_y + IDLER_RADIUS;
+            
             local_pos.x = rear_x + IDLER_RADIUS * cosf(angle);
-            local_pos.y = rear_bottom_y + IDLER_RADIUS * sinf(angle);
-            local_tangent = (Vector3){ -sinf(angle), cosf(angle), 0.0f };
+            local_pos.y = rear_center_y + IDLER_RADIUS * sinf(angle);
+            // Tangente ajustada a la derivada negativa del ángulo
+            local_tangent = (Vector3){ sinf(angle), -cosf(angle), 0.0f };
+            
         } else if (s < arc_len_rear + run_len_top) {
             float t = (s - arc_len_rear) / run_len_top;
             float x = lerpf(rear_x, front_x, t);
@@ -397,12 +403,18 @@ static void draw_track_loop_side(Model track_model, Vector3 origin,
             local_pos.x = x;
             local_pos.y = track_profile_from_points(x, top_support_x, top_support_y, 4, sag);
             local_tangent = (Vector3){ 1.0f, (top_support_y[3] - top_support_y[0]) * 0.012f, 0.0f };
+            
         } else if (s < arc_len_rear + run_len_top + arc_len_front) {
             float t = (s - arc_len_rear - run_len_top) / arc_len_front;
             float angle = deg2rad(90.0f - 180.0f * t);
+            // Elevar el pivote de la curva desde el fondo de la oruga hasta el eje de la rueda
+            float front_center_y = front_bottom_y + SPROCKET_RADIUS;
+            
             local_pos.x = front_x + SPROCKET_RADIUS * cosf(angle);
-            local_pos.y = front_bottom_y + SPROCKET_RADIUS * sinf(angle);
-            local_tangent = (Vector3){ -sinf(angle), cosf(angle), 0.0f };
+            local_pos.y = front_center_y + SPROCKET_RADIUS * sinf(angle);
+            // Tangente ajustada para que el frente del eslabón conecte fluidamente
+            local_tangent = (Vector3){ sinf(angle), -cosf(angle), 0.0f };
+            
         } else {
             float t = (s - arc_len_rear - run_len_top - arc_len_front) / run_len_bottom;
             float x = lerpf(front_x, rear_x, t);
@@ -437,7 +449,8 @@ static void draw_tank_3d(const Tank *t, Model hull_model, Model turret_model,
     Vector3 unit_scale = { 1.0f, 1.0f, 1.0f };
 
     float hull_yaw = -(float)t->heading_deg;
-    DrawModelEx(hull_model, pos, up_axis, hull_yaw, unit_scale, WHITE);
+    Vector3 hull_visual_pos = { pos.x, pos.y, pos.z }; // Ajusta el -0.2f a tu gusto
+    DrawModelEx(hull_model, hull_visual_pos, up_axis, hull_yaw, unit_scale, WHITE);
 
     Vector3 forward_dir, right_dir;
     hull_basis_vectors(t, &forward_dir, &right_dir);
@@ -450,20 +463,34 @@ static void draw_tank_3d(const Tank *t, Model hull_model, Model turret_model,
     for (int i = 0; i < wheel_count; i++) {
         Vector3 wheel_center_l = vec3_add(pos, vec3_add(vec3_scale(forward_dir, ROAD_WHEEL_X[i]), vec3_scale(right_dir, -1.9f)));
         Vector3 wheel_center_r = vec3_add(pos, vec3_add(vec3_scale(forward_dir, ROAD_WHEEL_X[i]), vec3_scale(right_dir, 1.9f)));
-        wheel_center_l.y += (float)t->road_wheel_compression_m[0][i];
-        wheel_center_r.y += (float)t->road_wheel_compression_m[1][i];
+        
+        // Sumar ROAD_WHEEL_BASE_Y para bajar las ruedas principales
+        wheel_center_l.y += ROAD_WHEEL_BASE_Y + (float)t->road_wheel_compression_m[0][i];
+        wheel_center_r.y += ROAD_WHEEL_BASE_Y + (float)t->road_wheel_compression_m[1][i];
+        
         draw_wheel_disc(wheel_center_l, right_dir, ROAD_WHEEL_RADIUS, 0.18f, 16, wheel_color);
         draw_wheel_disc(wheel_center_r, right_dir, ROAD_WHEEL_RADIUS, 0.18f, 16, wheel_color);
     }
 
-    /* return rollers and drive sprocket/idler to make the track layout
-     * read as a tracked vehicle instead of just a floating belt */
+    /* return rollers and drive sprocket/idler... */
     Vector3 roller_l = vec3_add(pos, vec3_add(vec3_scale(forward_dir, RETURN_ROLLER_X[0]), vec3_scale(right_dir, -TRACK_HALF_GAUGE)));
     Vector3 roller_r = vec3_add(pos, vec3_add(vec3_scale(forward_dir, RETURN_ROLLER_X[1]), vec3_scale(right_dir, TRACK_HALF_GAUGE)));
+    // Sumar RETURN_ROLLER_BASE_Y para corregir la altura de los rodillos superiores
+    roller_l.y += RETURN_ROLLER_BASE_Y;
+    roller_r.y += RETURN_ROLLER_BASE_Y;
+
     Vector3 sprocket_l = vec3_add(pos, vec3_add(vec3_scale(forward_dir, SPROCKET_X), vec3_scale(right_dir, -TRACK_HALF_GAUGE)));
-    Vector3 idler_l = vec3_add(pos, vec3_add(vec3_scale(forward_dir, IDLER_X), vec3_scale(right_dir, -TRACK_HALF_GAUGE)));
     Vector3 sprocket_r = vec3_add(pos, vec3_add(vec3_scale(forward_dir, SPROCKET_X), vec3_scale(right_dir, TRACK_HALF_GAUGE)));
+    // La tractora delantera necesita alinearse a la oruga (-1.02f base + 0.78f radio = -0.24f)
+    sprocket_l.y += -0.24f;
+    sprocket_r.y += -0.24f;
+
+    Vector3 idler_l = vec3_add(pos, vec3_add(vec3_scale(forward_dir, IDLER_X), vec3_scale(right_dir, -TRACK_HALF_GAUGE)));
     Vector3 idler_r = vec3_add(pos, vec3_add(vec3_scale(forward_dir, IDLER_X), vec3_scale(right_dir, TRACK_HALF_GAUGE)));
+    // La tensora trasera necesita alinearse a la oruga (-1.04f base + 0.66f radio = -0.38f)
+    idler_l.y += -0.38f;
+    idler_r.y += -0.38f;
+
     draw_wheel_disc(roller_l, right_dir, RETURN_ROLLER_RADIUS, 0.12f, 12, (Color){ 48, 48, 50, 255 });
     draw_wheel_disc(roller_r, right_dir, RETURN_ROLLER_RADIUS, 0.12f, 12, (Color){ 48, 48, 50, 255 });
     draw_wheel_disc(sprocket_l, right_dir, SPROCKET_RADIUS, 0.18f, 16, (Color){ 58, 58, 62, 255 });

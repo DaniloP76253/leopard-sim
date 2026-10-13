@@ -1,39 +1,23 @@
 #include "raylib.h"
-
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <time.h>
 
-#include "ai.h"
-#include "ammo.h"
-#include "combat.h"
-#include "match.h"
 #include "tank.h"
+#include "match.h"
+#include "ai.h"
+#include "combat.h"
+#include "ammo.h"
 #include "terrain.h"
 
+#include "math_ext.h"
+#include "assets.h"
+#include "vfx.h"
+#include "hud.h"
+#include "camera_sys.h"
+#include "render_tank.h"
+
 #define SIM_DT_MAX 0.05
-#define PLAYER_HEIGHT 1.0f
-
-#define CAMERA_BASE_DISTANCE 18.0f
-#define CAMERA_MIN_DISTANCE   8.0f
-#define CAMERA_MAX_DISTANCE  32.0f
-#define CAMERA_BASE_PITCH   -18.0f
-#define CAMERA_CHASE_FOVY    55.0f
-#define GUNNER_SIGHT_FOVY    20.0f  /* narrow FOV = "magnified sight optics" */
-
-/* how many degrees of desired aim one pixel of mouse motion buys you --
- * this drives the turret directly (not a raycast into the world), so it
- * works identically in chase view and gunner-sight view, and the turret
- * can track all the way round to the rear instead of being limited to
- * wherever the chase camera happens to be pointed. */
-#define TURRET_MOUSE_SENS_DEG_PER_PX     0.12
-#define ELEVATION_MOUSE_SENS_DEG_PER_PX  0.07
-
-/* match/AI tuning -- kept in sync with main.c's values by convention,
- * not by sharing a header, since the two frontends' main()s differ too
- * much to be worth factoring further right now */
 #define AI_PREFERRED_RANGE_M 350.0
 #define WAVE_ORIGIN_X          0.0
 #define WAVE_ORIGIN_Y          0.0
@@ -45,763 +29,14 @@
 #define SUPPLY_RADIUS_M       20.0
 #define SUPPLY_HEAL_PER_S      8.0
 
-#define MAX_IMPACT_EFFECTS 8
-
-static const float ROAD_WHEEL_X[5] = { -1.95f, -0.98f, 0.00f, 0.98f, 1.95f };
-static const float ROAD_WHEEL_RADIUS = 0.42f;
-static const float ROAD_WHEEL_BASE_Y = -0.62f;
-static const float RETURN_ROLLER_X[2] = { -0.92f, 0.92f };
-static const float RETURN_ROLLER_RADIUS = 0.24f;
-static const float RETURN_ROLLER_BASE_Y = 0.34f;
-static const float IDLER_X = -2.78f;
-static const float SPROCKET_X = 2.78f;
-static const float IDLER_RADIUS = 0.66f;
-static const float SPROCKET_RADIUS = 0.78f;
-static const float TRACK_HALF_GAUGE = 1.95f;
-static const int TRACK_LINK_COUNT = 56;
-static const Vector3 TRACK_LINK_SCALE = { 0.10f, 0.16f, 0.33f };
-
-typedef struct {
-    Model terrain_model;
-    Model bunker_model;
-    Model rock_model;
-    Model player_hull_model;
-    Model player_turret_model;
-    Model enemy_hull_model;
-    Model enemy_turret_model;
-    Model barrel_model;
-    Model muzzle_brake_model;
-    Model mantlet_model;
-    Model track_model;
-    Texture2D terrain_texture;
-    Texture2D rock_texture;
-    Texture2D bunker_texture;
-    Texture2D player_camo_texture;
-    Texture2D enemy_camo_texture;
-    Texture2D metal_texture;
-} SceneAssets;
-
-/* Where the player currently *wants* the gun pointed. Both mouse motion
- * and the J/L/I/K trim keys nudge this same state; tank_update_turret()
- * is then just servoed toward it every tick. Azimuth is hull-relative
- * (matches Tank::turret_azimuth_deg) so it wraps cleanly through the
- * full 360 degrees. */
-typedef struct {
-    double desired_turret_azimuth_deg;
-    double desired_gun_elevation_deg;
-} GunnerControl;
-
-typedef struct {
-    Vector3 position;
-    float life_s;
-    float max_life_s;
-    Color color;
-} ImpactEffect;
-
-typedef struct {
-    ImpactEffect items[MAX_IMPACT_EFFECTS];
-    int count;
-} ImpactEffectList;
-
-static float lerpf(float from, float to, float t)
-{
-    return from + (to - from) * t;
-}
-
-/* Plain lerpf() on raw degrees takes the *long* way round whenever the
- * two angles straddle the +-180 wrap boundary (e.g. 179 -> -179, which
- * is a 2-degree correction, not a 358-degree one), and orbit_yaw_deg is
- * unbounded (keeps accumulating during RMB free-look) so it can drift
- * far outside +-180 entirely. Both produce a camera that visibly spins
- * or lurches instead of smoothly settling -- this interpolates along
- * the shortest arc instead. */
-static float lerp_angle_deg(float from_deg, float to_deg, float t)
-{
-    float delta = (float)norm_deg((double)to_deg - (double)from_deg);
-    return (float)norm_deg((double)from_deg + delta * t);
-}
-
-static Vector3 vec3_add(Vector3 a, Vector3 b)
-{
-    return (Vector3){ a.x + b.x, a.y + b.y, a.z + b.z };
-}
-
-static Vector3 vec3_scale(Vector3 v, float scale)
-{
-    return (Vector3){ v.x * scale, v.y * scale, v.z * scale };
-}
-
-static Vector3 vec3_lerp(Vector3 from, Vector3 to, float t)
-{
-    return (Vector3){
-        lerpf(from.x, to.x, t),
-        lerpf(from.y, to.y, t),
-        lerpf(from.z, to.z, t)
-    };
-}
-
-static float terrain_visual_height_at(Vec2 pos)
-{
-    double logical = terrain_height_at(pos);
-    double normalized = clampd((logical + 5.0) / 12.0, 0.0, 1.0);
-    return (float)(normalized * 20.0);
-}
-
-static Vector3 tank_render_pos(const Tank *t, float extra_height)
-{
-    float ground = terrain_visual_height_at(t->position_m);
-    return (Vector3){ (float)t->position_m.x, ground + extra_height, (float)t->position_m.y };
-}
-
-static Vector3 tank_combat_pos(const Tank *t, float extra_height)
-{
-    float ground = (float)terrain_height_at(t->position_m);
-    return (Vector3){ (float)t->position_m.x, ground + extra_height, (float)t->position_m.y };
-}
-
-static Vector3 tank_boresight_dir(const Tank *t)
-{
-    float az = (float)deg2rad(tank_absolute_turret_azimuth_deg(t));
-    float el = (float)deg2rad(t->gun_elevation_deg);
-    return (Vector3){ cosf(el) * cosf(az), sinf(el), cosf(el) * sinf(az) };
-}
-
-static void update_chassis_pose(Tank *t)
-{
-    double heading = deg2rad(t->heading_deg);
-    Vec2 forward = vec2_make(cos(heading), sin(heading));
-    Vec2 right = vec2_make(-sin(heading), cos(heading));
-
-    double center = terrain_height_at(t->position_m);
-    double front = terrain_height_at(vec2_add(t->position_m, vec2_scale(forward, 3.0)));
-    double back = terrain_height_at(vec2_add(t->position_m, vec2_scale(forward, -3.0)));
-    double left = terrain_height_at(vec2_add(t->position_m, vec2_scale(right, -2.2)));
-    double right_h = terrain_height_at(vec2_add(t->position_m, vec2_scale(right, 2.2)));
-
-    double target_pitch = rad2deg(atan2(front - back, 6.0));
-    double target_roll = rad2deg(atan2(right_h - left, 4.4));
-
-    t->hull_pitch_deg = lerpf((float)t->hull_pitch_deg, (float)target_pitch, 0.12f);
-    t->hull_roll_deg  = lerpf((float)t->hull_roll_deg,  (float)target_roll,  0.12f);
-    t->hull_bounce_m  = lerpf((float)t->hull_bounce_m,  (float)((center - floor(center)) * 0.15), 0.08f);
-
-    Vector3 hull_pos = tank_render_pos(t, PLAYER_HEIGHT + (float)t->hull_bounce_m);
-    for (int side = 0; side < 2; side++) {
-        float side_sign = (side == 0) ? -1.0f : 1.0f;
-        Vec2 side_offset = vec2_scale(right, 1.9 * side_sign);
-        for (int i = 0; i < 5; i++) {
-            Vec2 wheel_pos = vec2_add(t->position_m, vec2_add(vec2_scale(forward, ROAD_WHEEL_X[i]), side_offset));
-            float ground = terrain_visual_height_at(wheel_pos);
-            float neutral_center_y = hull_pos.y + ROAD_WHEEL_BASE_Y;
-            float desired_center_y = ground + ROAD_WHEEL_RADIUS;
-            double compression = desired_center_y - neutral_center_y;
-            if (compression < 0.0) compression = 0.0;
-            if (compression > 0.55) compression = 0.55;
-            t->road_wheel_compression_m[side][i] = compression;
-        }
-    }
-}
-
-static void print_status(const Tank *p, const Tank *t, int target_ai, double sim_time_s, const MatchState *match)
-{
-    printf("\n--- STATUS (t = %.1fs) ---\n", sim_time_s);
-    printf("%-8s pos(%.0f,%.0f) hdg %.0f spd %.1f km/h turret %.0f abs %.0f gun %.1f\n",
-           p->name, p->position_m.x, p->position_m.y, p->heading_deg,
-           tank_speed_kmh(p), p->turret_azimuth_deg,
-           tank_absolute_turret_azimuth_deg(p), p->gun_elevation_deg);
-    printf("         ammo: %s x%d/%d  %s x%d/%d  %s x%d/%d   selected: %s   reload: %s\n",
-           ammo_get(AMMO_APFSDS)->short_name, p->ammo_count[AMMO_APFSDS], p->ammo_max[AMMO_APFSDS],
-           ammo_get(AMMO_HEAT)->short_name,   p->ammo_count[AMMO_HEAT], p->ammo_max[AMMO_HEAT],
-           ammo_get(AMMO_HE)->short_name,     p->ammo_count[AMMO_HE], p->ammo_max[AMMO_HE],
-           ammo_get(p->current_ammo)->short_name,
-           p->reload_timer_s > 0.0 ? "reloading" : "READY");
-    printf("         HP: %.0f/100  %s\n", p->hp, p->alive ? "" : "-- DESTROYED");
-    printf("         modules: engine %.0f tracks %.0f turret %.0f gun %.0f optics %.0f\n",
-           p->module_engine_hp, p->module_tracks_hp, p->module_turret_hp,
-           p->module_gun_hp, p->module_optics_hp);
-
-    double dx = t->position_m.x - p->position_m.x;
-    double dy = t->position_m.y - p->position_m.y;
-    double range = sqrt(dx * dx + dy * dy);
-    double bearing = norm_deg(rad2deg(atan2(dy, dx)));
-
-    printf("%-8s pos(%.0f,%.0f) hdg %.0f turret(abs) %.0f range %.0fm bearing %.0fdeg AI:%s\n",
-           t->name, t->position_m.x, t->position_m.y, t->heading_deg,
-           tank_absolute_turret_azimuth_deg(t), range, bearing,
-           target_ai ? "on" : "off");
-    printf("         HP: %.0f/100  %s\n", t->hp, t->alive ? "" : "-- DESTROYED");
-    printf("         modules: engine %.0f tracks %.0f turret %.0f gun %.0f optics %.0f\n",
-           t->module_engine_hp, t->module_tracks_hp, t->module_turret_hp,
-           t->module_gun_hp, t->module_optics_hp);
-    printf("         Wave %d | kills %d\n\n", match->wave, match->kills);
-}
-
-/* Computes an (axis, angle) pair that rotates a mesh built with its
- * length along +Y (like GenMeshCylinder's default orientation) so that
- * axis instead points along `dir` (need not be normalized). Standard
- * axis = cross((0,1,0), dir), angle = acos(dot((0,1,0), dir)) -- this
- * was verified independently against the Rodrigues rotation formula
- * (not just eyeballed) before going anywhere near this file: rotating
- * (0,1,0) by the returned (axis, angle) reproduces `dir` to within
- * floating-point error for straight-ahead, behind, 45-degree azimuths,
- * both gun elevation limits, and the hull-right wheel direction. */
-static void axis_angle_from_y_to(Vector3 dir, Vector3 *out_axis, float *out_angle_deg)
-{
-    float len = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
-    if (len < 1e-6f) { *out_axis = (Vector3){ 1.0f, 0.0f, 0.0f }; *out_angle_deg = 0.0f; return; }
-    Vector3 d = { dir.x / len, dir.y / len, dir.z / len };
-
-    Vector3 axis = { d.z, 0.0f, -d.x }; /* cross((0,1,0), d) */
-    float axis_len = sqrtf(axis.x * axis.x + axis.z * axis.z);
-    if (axis_len < 1e-5f) {
-        /* dir is (anti)parallel to +Y -- doesn't happen in practice given
-         * this game's elevation limits, but handled cleanly regardless */
-        *out_axis = (Vector3){ 1.0f, 0.0f, 0.0f };
-        *out_angle_deg = (d.y > 0.0f) ? 0.0f : 180.0f;
-        return;
-    }
-    *out_axis = (Vector3){ axis.x / axis_len, 0.0f, axis.z / axis_len };
-    float dotv = d.y; /* dot((0,1,0), d) */
-    if (dotv > 1.0f) dotv = 1.0f;
-    if (dotv < -1.0f) dotv = -1.0f;
-    *out_angle_deg = (float)rad2deg((double)acosf(dotv));
-}
-
-static void axis_angle_from_x_to(Vector3 dir, Vector3 *out_axis, float *out_angle_deg)
-{
-    float len = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
-    if (len < 1e-6f) { *out_axis = (Vector3){ 0.0f, 1.0f, 0.0f }; *out_angle_deg = 0.0f; return; }
-    Vector3 d = { dir.x / len, dir.y / len, dir.z / len };
-
-    Vector3 axis = { 0.0f, -d.z, d.y }; /* cross((1,0,0), d) */
-    float axis_len = sqrtf(axis.y * axis.y + axis.z * axis.z);
-    if (axis_len < 1e-5f) {
-        *out_axis = (Vector3){ 0.0f, 1.0f, 0.0f };
-        *out_angle_deg = (d.x > 0.0f) ? 0.0f : 180.0f;
-        return;
-    }
-    *out_axis = (Vector3){ 0.0f, axis.y / axis_len, axis.z / axis_len };
-    float dotv = d.x;
-    if (dotv > 1.0f) dotv = 1.0f;
-    if (dotv < -1.0f) dotv = -1.0f;
-    *out_angle_deg = (float)rad2deg((double)acosf(dotv));
-}
-
-static void hull_basis_vectors(const Tank *t, Vector3 *out_forward, Vector3 *out_right)
-{
-    float h = (float)deg2rad(t->heading_deg);
-    *out_forward = (Vector3){ cosf(h), 0.0f, sinf(h) };
-    *out_right   = (Vector3){ -sinf(h), 0.0f, cosf(h) };
-}
-
-static float wrap_positive(float value, float period)
-{
-    float wrapped = fmodf(value, period);
-    if (wrapped < 0.0f) wrapped += period;
-    return wrapped;
-}
-
-static Vector3 tank_local_to_world(Vector3 origin, Vector3 forward_dir, Vector3 right_dir, Vector3 local)
-{
-    return (Vector3){
-        origin.x + forward_dir.x * local.x + right_dir.x * local.z,
-        origin.y + local.y,
-        origin.z + forward_dir.z * local.x + right_dir.z * local.z
-    };
-}
-
-static float track_profile_from_points(float x, const float *points_x, const float *points_y, int count, float sag)
-{
-    if (count <= 0) return 0.0f;
-    if (x <= points_x[0]) return points_y[0];
-    if (x >= points_x[count - 1]) return points_y[count - 1];
-    for (int i = 0; i < count - 1; i++) {
-        float x0 = points_x[i];
-        float x1 = points_x[i + 1];
-        if (x >= x0 && x <= x1) {
-            float t = (x1 - x0) > 1e-6f ? (x - x0) / (x1 - x0) : 0.0f;
-            float y = lerpf(points_y[i], points_y[i + 1], t);
-            y -= sag * 4.0f * t * (1.0f - t);
-            return y;
-        }
-    }
-    return points_y[count - 1];
-}
-
-static void draw_wheel_disc(Vector3 center, Vector3 axle_dir, float radius, float width, int sides, Color tint)
-{
-    Vector3 half = vec3_scale(axle_dir, width * 0.5f);
-    DrawCylinderEx(vec3_add(center, (Vector3){ -half.x, -half.y, -half.z }),
-                   vec3_add(center, half),
-                   radius, radius, sides, tint);
-}
-
-static Vector3 tank_local_dir_to_world(Vector3 forward_dir, Vector3 right_dir, Vector3 local_dir)
-{
-    return (Vector3){
-        forward_dir.x * local_dir.x + right_dir.x * local_dir.z,
-        local_dir.y,
-        forward_dir.z * local_dir.x + right_dir.z * local_dir.z
-    };
-}
-
-static void draw_track_loop_side(Model track_model, Vector3 origin,
-                                 Vector3 forward_dir, Vector3 right_dir, float side_sign,
-                                 float phase_m, const double wheel_compression[5], Color tint)
-{
-    const float local_z = TRACK_HALF_GAUGE * side_sign;
-    const float rear_x = IDLER_X;
-    const float front_x = SPROCKET_X;
-    const float rear_top_y = 0.38f;
-    const float front_top_y = 0.40f;
-    const float rear_bottom_y = -1.04f;
-    const float front_bottom_y = -1.02f;
-    const float arc_len_rear = PI * IDLER_RADIUS;
-    const float arc_len_front = PI * SPROCKET_RADIUS;
-    const float run_len_top = fabsf(front_x - rear_x);
-    const float run_len_bottom = fabsf(front_x - rear_x);
-    const float total_len = arc_len_rear + run_len_top + arc_len_front + run_len_bottom;
-    const float link_step = total_len / (float)TRACK_LINK_COUNT;
-
-    float top_support_x[4] = { rear_x, RETURN_ROLLER_X[0], RETURN_ROLLER_X[1], front_x };
-    float top_support_y[4] = {
-        rear_top_y,
-        RETURN_ROLLER_BASE_Y + 0.12f + 0.08f * (float)wheel_compression[1],
-        RETURN_ROLLER_BASE_Y + 0.12f + 0.08f * (float)wheel_compression[3],
-        front_top_y
-    };
-    float bottom_support_x[5] = { front_x, ROAD_WHEEL_X[4], ROAD_WHEEL_X[2], ROAD_WHEEL_X[0], rear_x };
-    float bottom_support_y[5] = {
-        front_bottom_y,
-        ROAD_WHEEL_BASE_Y + (float)wheel_compression[4] + 0.48f,
-        ROAD_WHEEL_BASE_Y + (float)wheel_compression[2] + 0.44f,
-        ROAD_WHEEL_BASE_Y + (float)wheel_compression[0] + 0.48f,
-        rear_bottom_y
-    };
-
-    for (int i = 0; i < TRACK_LINK_COUNT; i++) {
-        float s = wrap_positive(phase_m + (i + 0.5f) * link_step, total_len);
-        Vector3 local_pos = { 0.0f, 0.0f, local_z };
-        Vector3 local_tangent = { 1.0f, 0.0f, 0.0f };
-
-        if (s < arc_len_rear) {
-            float t = s / arc_len_rear;
-            // Disminuir el ángulo para envolver la rueda trasera por la izquierda
-            float angle = deg2rad(270.0f - 180.0f * t);
-            // Elevar el pivote de la curva desde el fondo de la oruga hasta el eje de la rueda
-            float rear_center_y = rear_bottom_y + IDLER_RADIUS;
-            
-            local_pos.x = rear_x + IDLER_RADIUS * cosf(angle);
-            local_pos.y = rear_center_y + IDLER_RADIUS * sinf(angle);
-            // Tangente ajustada a la derivada negativa del ángulo
-            local_tangent = (Vector3){ sinf(angle), -cosf(angle), 0.0f };
-            
-        } else if (s < arc_len_rear + run_len_top) {
-            float t = (s - arc_len_rear) / run_len_top;
-            float x = lerpf(rear_x, front_x, t);
-            float sag = 0.16f + 0.08f * (float)(wheel_compression[1] + wheel_compression[2] + wheel_compression[3]) / 3.0f;
-            local_pos.x = x;
-            local_pos.y = track_profile_from_points(x, top_support_x, top_support_y, 4, sag);
-            local_tangent = (Vector3){ 1.0f, (top_support_y[3] - top_support_y[0]) * 0.012f, 0.0f };
-            
-        } else if (s < arc_len_rear + run_len_top + arc_len_front) {
-            float t = (s - arc_len_rear - run_len_top) / arc_len_front;
-            float angle = deg2rad(90.0f - 180.0f * t);
-            // Elevar el pivote de la curva desde el fondo de la oruga hasta el eje de la rueda
-            float front_center_y = front_bottom_y + SPROCKET_RADIUS;
-            
-            local_pos.x = front_x + SPROCKET_RADIUS * cosf(angle);
-            local_pos.y = front_center_y + SPROCKET_RADIUS * sinf(angle);
-            // Tangente ajustada para que el frente del eslabón conecte fluidamente
-            local_tangent = (Vector3){ sinf(angle), -cosf(angle), 0.0f };
-            
-        } else {
-            float t = (s - arc_len_rear - run_len_top - arc_len_front) / run_len_bottom;
-            float x = lerpf(front_x, rear_x, t);
-            float sag = 0.12f + 0.08f * (float)wheel_compression[2];
-            local_pos.x = x;
-            local_pos.y = track_profile_from_points(x, bottom_support_x, bottom_support_y, 5, sag);
-            local_tangent = (Vector3){ -1.0f, (bottom_support_y[4] - bottom_support_y[0]) * 0.012f, 0.0f };
-        }
-
-        Vector3 world_pos = tank_local_to_world(origin, forward_dir, right_dir, local_pos);
-        Vector3 world_tangent = tank_local_dir_to_world(forward_dir, right_dir, local_tangent);
-        Vector3 axis; float angle_deg;
-        axis_angle_from_x_to(world_tangent, &axis, &angle_deg);
-        DrawModelEx(track_model, world_pos, axis, angle_deg, TRACK_LINK_SCALE, tint);
-    }
-}
-
-/* Real hull/turret rotation, texture and all -- DrawCubeV (the original
- * approach) can't rotate at all, so the hull used to stay axis-aligned
- * regardless of heading and only the gun-barrel line actually swung to
- * face the way you were aiming. Deriving raylib's rotate-about-Y matrix
- * against this project's heading convention (0=+X, CCW+, world Z = sim
- * Y) gives rotationAngle = -heading_deg; if a build ever looks like it's
- * facing backwards, flip that sign first. */
-static void draw_tank_3d(const Tank *t, Model hull_model, Model turret_model,
-                         Model barrel_model, Model muzzle_brake_model,
-                         Model mantlet_model, Model track_model)
-{
-    Vector3 pos = tank_render_pos(t, PLAYER_HEIGHT + (float)t->hull_bounce_m);
-    Vector3 barrel_dir = tank_boresight_dir(t);
-    Vector3 up_axis = { 0.0f, 1.0f, 0.0f };
-    Vector3 unit_scale = { 1.0f, 1.0f, 1.0f };
-
-    float hull_yaw = -(float)t->heading_deg;
-    Vector3 hull_visual_pos = { pos.x, pos.y, pos.z }; // Ajusta el -0.2f a tu gusto
-    DrawModelEx(hull_model, hull_visual_pos, up_axis, hull_yaw, unit_scale, WHITE);
-
-    Vector3 forward_dir, right_dir;
-    hull_basis_vectors(t, &forward_dir, &right_dir);
-    Color track_tint = (Color){ 40, 40, 42, 255 };
-    draw_track_loop_side(track_model, pos, forward_dir, right_dir, -1.0f, (float)t->left_track_phase_m, t->road_wheel_compression_m[0], track_tint);
-    draw_track_loop_side(track_model, pos, forward_dir, right_dir,  1.0f, (float)t->right_track_phase_m, t->road_wheel_compression_m[1], track_tint);
-
-    const int wheel_count = 5;
-    Color wheel_color = (Color){ 26, 26, 28, 255 };
-    for (int i = 0; i < wheel_count; i++) {
-        Vector3 wheel_center_l = vec3_add(pos, vec3_add(vec3_scale(forward_dir, ROAD_WHEEL_X[i]), vec3_scale(right_dir, -1.9f)));
-        Vector3 wheel_center_r = vec3_add(pos, vec3_add(vec3_scale(forward_dir, ROAD_WHEEL_X[i]), vec3_scale(right_dir, 1.9f)));
-        
-        // Sumar ROAD_WHEEL_BASE_Y para bajar las ruedas principales
-        wheel_center_l.y += ROAD_WHEEL_BASE_Y + (float)t->road_wheel_compression_m[0][i];
-        wheel_center_r.y += ROAD_WHEEL_BASE_Y + (float)t->road_wheel_compression_m[1][i];
-        
-        draw_wheel_disc(wheel_center_l, right_dir, ROAD_WHEEL_RADIUS, 0.18f, 16, wheel_color);
-        draw_wheel_disc(wheel_center_r, right_dir, ROAD_WHEEL_RADIUS, 0.18f, 16, wheel_color);
-    }
-
-    /* return rollers and drive sprocket/idler... */
-    Vector3 roller_l = vec3_add(pos, vec3_add(vec3_scale(forward_dir, RETURN_ROLLER_X[0]), vec3_scale(right_dir, -TRACK_HALF_GAUGE)));
-    Vector3 roller_r = vec3_add(pos, vec3_add(vec3_scale(forward_dir, RETURN_ROLLER_X[1]), vec3_scale(right_dir, TRACK_HALF_GAUGE)));
-    // Sumar RETURN_ROLLER_BASE_Y para corregir la altura de los rodillos superiores
-    roller_l.y += RETURN_ROLLER_BASE_Y;
-    roller_r.y += RETURN_ROLLER_BASE_Y;
-
-    Vector3 sprocket_l = vec3_add(pos, vec3_add(vec3_scale(forward_dir, SPROCKET_X), vec3_scale(right_dir, -TRACK_HALF_GAUGE)));
-    Vector3 sprocket_r = vec3_add(pos, vec3_add(vec3_scale(forward_dir, SPROCKET_X), vec3_scale(right_dir, TRACK_HALF_GAUGE)));
-    // La tractora delantera necesita alinearse a la oruga (-1.02f base + 0.78f radio = -0.24f)
-    sprocket_l.y += -0.24f;
-    sprocket_r.y += -0.24f;
-
-    Vector3 idler_l = vec3_add(pos, vec3_add(vec3_scale(forward_dir, IDLER_X), vec3_scale(right_dir, -TRACK_HALF_GAUGE)));
-    Vector3 idler_r = vec3_add(pos, vec3_add(vec3_scale(forward_dir, IDLER_X), vec3_scale(right_dir, TRACK_HALF_GAUGE)));
-    // La tensora trasera necesita alinearse a la oruga (-1.04f base + 0.66f radio = -0.38f)
-    idler_l.y += -0.38f;
-    idler_r.y += -0.38f;
-
-    draw_wheel_disc(roller_l, right_dir, RETURN_ROLLER_RADIUS, 0.12f, 12, (Color){ 48, 48, 50, 255 });
-    draw_wheel_disc(roller_r, right_dir, RETURN_ROLLER_RADIUS, 0.12f, 12, (Color){ 48, 48, 50, 255 });
-    draw_wheel_disc(sprocket_l, right_dir, SPROCKET_RADIUS, 0.18f, 16, (Color){ 58, 58, 62, 255 });
-    draw_wheel_disc(sprocket_r, right_dir, SPROCKET_RADIUS, 0.18f, 16, (Color){ 58, 58, 62, 255 });
-    draw_wheel_disc(idler_l, right_dir, IDLER_RADIUS, 0.18f, 16, (Color){ 54, 54, 58, 255 });
-    draw_wheel_disc(idler_r, right_dir, IDLER_RADIUS, 0.18f, 16, (Color){ 54, 54, 58, 255 });
-
-    Vector3 turret_pos = { pos.x, pos.y + 1.0f, pos.z };
-    float turret_yaw = -(float)tank_absolute_turret_azimuth_deg(t);
-    DrawModelEx(turret_model, turret_pos, up_axis, turret_yaw, unit_scale, WHITE);
-
-    Vector3 mantlet_pos = vec3_add(turret_pos, vec3_scale(barrel_dir, 1.0f));
-    DrawModelEx(mantlet_model, mantlet_pos, up_axis, turret_yaw, unit_scale, (Color){ 100, 102, 98, 255 });
-
-    /* the barrel is a real cylinder now, oriented along the actual 3D
-     * aim direction (azimuth + elevation) via axis_angle_from_y_to();
-     * GenMeshCylinder is assumed base-anchored (extends from local
-     * y=0 to y=height), so `turret_pos` is where the barrel *starts*.
-     * If a real build ever shows the barrel centered on the turret
-     * instead of projecting out from it, that assumption is the first
-     * thing to check. */
-    Vector3 barrel_axis; float barrel_angle_deg;
-    axis_angle_from_y_to(barrel_dir, &barrel_axis, &barrel_angle_deg);
-    Color metal_tint = (Color){ 130, 132, 128, 255 };
-    DrawModelEx(barrel_model, turret_pos, barrel_axis, barrel_angle_deg, unit_scale, metal_tint);
-
-    Vector3 muzzle_pos = vec3_add(turret_pos, vec3_scale(barrel_dir, 3.0f));
-    DrawModelEx(muzzle_brake_model, muzzle_pos, barrel_axis, barrel_angle_deg, unit_scale, (Color){ 90, 92, 88, 255 });
-}
-
-/* ---------------------------------------------------------------------
- * Aiming: mouse + keyboard both feed one "desired aim" state, which is
- * then servoed toward -- the AI uses the exact same servo math in ai.c.
- * ------------------------------------------------------------------- */
-
-static void update_gunner_control_from_mouse(GunnerControl *ctrl, const Tank *player)
-{
-    Vector2 delta = GetMouseDelta();
-    ctrl->desired_turret_azimuth_deg = norm_deg(ctrl->desired_turret_azimuth_deg + delta.x * TURRET_MOUSE_SENS_DEG_PER_PX);
-    ctrl->desired_gun_elevation_deg = clampd(ctrl->desired_gun_elevation_deg - delta.y * ELEVATION_MOUSE_SENS_DEG_PER_PX,
-                                             player->gun_elevation_min_deg, player->gun_elevation_max_deg);
-}
-
-static void turret_input_toward(const Tank *player, double desired_az_rel_deg, double desired_el_deg,
-                                double dt, double *turret_input, double *elev_input)
-{
-    double az_error = norm_deg(desired_az_rel_deg - player->turret_azimuth_deg);
-    *turret_input = clampd(az_error / (player->turret_traverse_dps * dt + 1e-6), -1.0, 1.0);
-
-    double el_error = desired_el_deg - player->gun_elevation_deg;
-    *elev_input = clampd(el_error / (player->gun_elevation_dps * dt + 1e-6), -1.0, 1.0);
-}
-
-/* ---------------------------------------------------------------------
- * Cameras: a third-person chase/orbit view for driving and situational
- * awareness, and a real gunner-sight view (locked to the barrel, narrow
- * FOV) for precision shooting. Both share the same aiming state above.
- * ------------------------------------------------------------------- */
-
-static void update_chase_camera(Camera3D *camera, const Tank *player, const GunnerControl *ctrl, float *orbit_yaw_deg,
-                                float *orbit_pitch_deg, float *orbit_distance, float kick)
-{
-    if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
-        Vector2 delta = GetMouseDelta();
-        *orbit_yaw_deg = (float)norm_deg((double)*orbit_yaw_deg + delta.x * 0.18f);
-        *orbit_pitch_deg -= delta.y * 0.12f;
-    } else {
-        float desired_yaw = (float)norm_deg(player->heading_deg + ctrl->desired_turret_azimuth_deg);
-        *orbit_yaw_deg = lerp_angle_deg(*orbit_yaw_deg, desired_yaw, 0.40f);
-        *orbit_pitch_deg = lerpf(*orbit_pitch_deg, CAMERA_BASE_PITCH, 0.04f);
-    }
-
-    *orbit_pitch_deg = clampd(*orbit_pitch_deg, -62.0f, -8.0f);
-    *orbit_distance -= GetMouseWheelMove() * 1.2f;
-    *orbit_distance = clampd(*orbit_distance, CAMERA_MIN_DISTANCE, CAMERA_MAX_DISTANCE);
-
-    Vector3 player_pos = tank_render_pos(player, PLAYER_HEIGHT);
-    float yaw_rad = (float)deg2rad(*orbit_yaw_deg);
-    float pitch_rad = (float)deg2rad(*orbit_pitch_deg);
-
-    Vector3 forward = {
-        cosf(pitch_rad) * cosf(yaw_rad),
-        sinf(pitch_rad),
-        cosf(pitch_rad) * sinf(yaw_rad)
-    };
-
-    Vector3 desired_pos = vec3_add(player_pos, vec3_scale(forward, -*orbit_distance));
-    desired_pos.y += 3.0f;
-
-    float ground_at_cam = terrain_visual_height_at(vec2_make(desired_pos.x, desired_pos.z));
-    if (desired_pos.y < ground_at_cam + 1.2f) desired_pos.y = ground_at_cam + 1.2f;
-
-    camera->position = vec3_lerp(camera->position, desired_pos, 0.14f);
-    camera->target = vec3_lerp(camera->target, vec3_add(player_pos, (Vector3){ 0.0f, 1.1f, 0.0f }), 0.20f);
-    camera->up = (Vector3){ 0.0f, 1.0f, 0.0f };
-    camera->fovy = lerpf(camera->fovy, CAMERA_CHASE_FOVY, 0.15f) + kick * 1.5f;
-}
-
-static void update_gunner_camera(Camera3D *camera, const Tank *player, float kick)
-{
-    Vector3 turret_pos = tank_render_pos(player, PLAYER_HEIGHT + 1.0f + (float)player->hull_bounce_m);
-    Vector3 aim_dir = tank_boresight_dir(player);
-    Vector3 eye = vec3_add(turret_pos, vec3_scale(aim_dir, 3.5f));
-
-    camera->position = vec3_lerp(camera->position, eye, 0.35f);
-    camera->target = vec3_add(camera->position, aim_dir);
-    camera->up = (Vector3){ 0.0f, 1.0f, 0.0f };
-    camera->fovy = lerpf(camera->fovy, GUNNER_SIGHT_FOVY, 0.15f) + kick * 3.0f;
-}
-
-/* ---------------------------------------------------------------------
- * Reticles
- * ------------------------------------------------------------------- */
-
-static void draw_crosshair(Vector2 screen_point, Color color)
-{
-    int cx = (int)screen_point.x;
-    int cy = (int)screen_point.y;
-    int len = 10;
-    DrawLine(cx - len, cy, cx - 3, cy, color);
-    DrawLine(cx + 3, cy, cx + len, cy, color);
-    DrawLine(cx, cy - len, cx, cy - 3, color);
-    DrawLine(cx, cy + 3, cx, cy + len, color);
-    DrawCircleLines(cx, cy, 18.0f, Fade(color, 0.4f));
-}
-
-static void draw_chase_reticle(const Camera3D *camera, Vector3 aim_target, Color color)
-{
-    Vector3 to_target = {
-        aim_target.x - camera->position.x,
-        aim_target.y - camera->position.y,
-        aim_target.z - camera->position.z
-    };
-    Vector3 fwd = {
-        camera->target.x - camera->position.x,
-        camera->target.y - camera->position.y,
-        camera->target.z - camera->position.z
-    };
-    float dot = to_target.x * fwd.x + to_target.y * fwd.y + to_target.z * fwd.z;
-
-    int w = GetScreenWidth();
-    int h = GetScreenHeight();
-
-    if (dot > 0.0f) {
-        Vector2 screen = GetWorldToScreen(aim_target, *camera);
-        if (screen.x >= 0.0f && screen.x <= (float)w && screen.y >= 0.0f && screen.y <= (float)h) {
-            draw_crosshair(screen, color);
-            return;
-        }
-    }
-
-    double cam_bearing = rad2deg(atan2(fwd.z, fwd.x));
-    double aim_bearing = rad2deg(atan2(to_target.z, to_target.x));
-    double rel = norm_deg(aim_bearing - cam_bearing);
-
-    const char *label = (rel > 0.0) ? "GUN >>" : "<< GUN";
-    int text_w = MeasureText(label, 20);
-    int y = h / 2;
-    int x = (rel > 0.0) ? (w - text_w - 24) : 24;
-    DrawText(label, x, y, 20, color);
-}
-
-static void draw_gunner_sight_overlay(const Tank *player)
-{
-    int w = GetScreenWidth();
-    int h = GetScreenHeight();
-    int cx = w / 2;
-    int cy = h / 2;
-    Color reticle_color = (Color){ 60, 255, 120, 220 };
-
-    DrawLine(cx - 140, cy, cx - 20, cy, reticle_color);
-    DrawLine(cx + 20, cy, cx + 140, cy, reticle_color);
-    DrawLine(cx, cy - 140, cx, cy - 20, reticle_color);
-    DrawLine(cx, cy + 20, cx, cy + 100, reticle_color);
-    DrawCircleLines(cx, cy, 3.0f, reticle_color);
-
-    for (int i = -6; i <= 6; i++) {
-        if (i == 0) continue;
-        int x = cx + i * 22;
-        int tick_h = (i % 3 == 0) ? 10 : 5;
-        DrawLine(x, cy - tick_h, x, cy + tick_h, Fade(reticle_color, 0.7f));
-    }
-
-    int tape_x = w - 60;
-    int tape_top = cy - 160;
-    int tape_bottom = cy + 160;
-    DrawLine(tape_x, tape_top, tape_x, tape_bottom, Fade(RAYWHITE, 0.5f));
-    double elev_span = player->gun_elevation_max_deg - player->gun_elevation_min_deg;
-    double elev_t = (elev_span > 1e-6) ? (player->gun_elevation_deg - player->gun_elevation_min_deg) / elev_span : 0.5;
-    elev_t = clampd(elev_t, 0.0, 1.0);
-    int marker_y = tape_bottom - (int)(elev_t * (double)(tape_bottom - tape_top));
-    DrawTriangle((Vector2){ (float)(tape_x - 10), (float)marker_y },
-                (Vector2){ (float)(tape_x + 4), (float)(marker_y - 6) },
-                (Vector2){ (float)(tape_x + 4), (float)(marker_y + 6) }, YELLOW);
-    DrawText(TextFormat("%.1f", player->gun_elevation_deg), tape_x + 8, marker_y - 8, 16, YELLOW);
-
-    DrawText(TextFormat("GUNNER SIGHT  |  %s", ammo_get(player->current_ammo)->short_name),
-             cx - 110, cy + 150, 20, reticle_color);
-}
-
-/* ---------------------------------------------------------------------
- * Impact effects -- driven by CombatShotResult so the visual reflects
- * what actually happened (and where) instead of guessing from stdout.
- * ------------------------------------------------------------------- */
-
-static void spawn_impact_effect(ImpactEffectList *list, CombatShotResult result, Color color)
-{
-    if (result.outcome == SHOT_OUTCOME_INVALID) return;
-    int idx = list->count % MAX_IMPACT_EFFECTS;
-    ImpactEffect *e = &list->items[idx];
-    e->position = (Vector3){ (float)result.impact_point.x, (float)result.impact_point.z, (float)result.impact_point.y };
-    e->max_life_s = 0.45f;
-    e->life_s = e->max_life_s;
-    e->color = color;
-    list->count++;
-}
-
-static void update_impact_effects(ImpactEffectList *list, float dt)
-{
-    for (int i = 0; i < MAX_IMPACT_EFFECTS; i++) {
-        if (list->items[i].life_s > 0.0f) list->items[i].life_s -= dt;
-    }
-}
-
-static void draw_impact_effects(const ImpactEffectList *list)
-{
-    for (int i = 0; i < MAX_IMPACT_EFFECTS; i++) {
-        const ImpactEffect *e = &list->items[i];
-        if (e->life_s <= 0.0f) continue;
-        float t = e->life_s / e->max_life_s;
-        float radius = 1.6f * (1.0f - t) + 0.3f;
-        DrawSphere(e->position, radius, Fade(e->color, t));
-    }
-}
-
-static void init_scene_assets(SceneAssets *assets)
-{
-    memset(assets, 0, sizeof(*assets));
-
-    assets->terrain_model = LoadModel("assets/models/generated/terrain.obj");
-    assets->terrain_texture = LoadTexture("assets/textures/terrain_ground.png");
-    SetMaterialTexture(&assets->terrain_model.materials[0], MATERIAL_MAP_ALBEDO, assets->terrain_texture);
-
-    assets->bunker_model = LoadModel("assets/models/generated/bunker.obj");
-    assets->bunker_texture = LoadTexture("assets/textures/bunker.png");
-    SetMaterialTexture(&assets->bunker_model.materials[0], MATERIAL_MAP_ALBEDO, assets->bunker_texture);
-
-    assets->rock_model = LoadModel("assets/models/generated/rock.obj");
-    assets->rock_texture = LoadTexture("assets/textures/rock.png");
-    SetMaterialTexture(&assets->rock_model.materials[0], MATERIAL_MAP_ALBEDO, assets->rock_texture);
-
-    assets->player_hull_model = LoadModel("assets/models/hull.obj");
-    assets->player_turret_model = LoadModel("assets/models/turret.obj");
-    assets->player_camo_texture = LoadTexture("assets/textures/player_camo.png");
-    SetMaterialTexture(&assets->player_hull_model.materials[0], MATERIAL_MAP_ALBEDO, assets->player_camo_texture);
-    SetMaterialTexture(&assets->player_turret_model.materials[0], MATERIAL_MAP_ALBEDO, assets->player_camo_texture);
-
-    assets->enemy_hull_model = LoadModel("assets/models/hull.obj");
-    assets->enemy_turret_model = LoadModel("assets/models/turret.obj");
-    assets->enemy_camo_texture = LoadTexture("assets/textures/enemy_camo.png");
-    SetMaterialTexture(&assets->enemy_hull_model.materials[0], MATERIAL_MAP_ALBEDO, assets->enemy_camo_texture);
-    SetMaterialTexture(&assets->enemy_turret_model.materials[0], MATERIAL_MAP_ALBEDO, assets->enemy_camo_texture);
-
-    /* barrel/mantlet/tracks are shared between both sides -- bare metal
-     * and dark rubber/steel don't really vary by camo scheme */
-    assets->metal_texture = LoadTexture("assets/textures/metal.png");
-
-    assets->barrel_model = LoadModel("assets/models/generated/barrel.obj");
-    SetMaterialTexture(&assets->barrel_model.materials[0], MATERIAL_MAP_ALBEDO, assets->metal_texture);
-
-    assets->muzzle_brake_model = LoadModel("assets/models/generated/muzzle_brake.obj");
-    SetMaterialTexture(&assets->muzzle_brake_model.materials[0], MATERIAL_MAP_ALBEDO, assets->metal_texture);
-
-    assets->mantlet_model = LoadModel("assets/models/generated/mantlet.obj");
-    SetMaterialTexture(&assets->mantlet_model.materials[0], MATERIAL_MAP_ALBEDO, assets->metal_texture);
-
-    assets->track_model = LoadModel("assets/models/generated/track.obj");
-    SetMaterialTexture(&assets->track_model.materials[0], MATERIAL_MAP_ALBEDO, assets->metal_texture);
-}
-
-static void unload_scene_assets(SceneAssets *assets)
-{
-    UnloadTexture(assets->terrain_texture);
-    UnloadTexture(assets->rock_texture);
-    UnloadTexture(assets->bunker_texture);
-    UnloadTexture(assets->player_camo_texture);
-    UnloadTexture(assets->enemy_camo_texture);
-    UnloadTexture(assets->metal_texture);
-    UnloadModel(assets->terrain_model);
-    UnloadModel(assets->bunker_model);
-    UnloadModel(assets->rock_model);
-    UnloadModel(assets->player_hull_model);
-    UnloadModel(assets->player_turret_model);
-    UnloadModel(assets->enemy_hull_model);
-    UnloadModel(assets->enemy_turret_model);
-    UnloadModel(assets->barrel_model);
-    UnloadModel(assets->muzzle_brake_model);
-    UnloadModel(assets->mantlet_model);
-    UnloadModel(assets->track_model);
-}
-
-static int turret_has_line_of_sight(const Tank *shooter, const Tank *target)
-{
+static int turret_has_line_of_sight(const Tank *shooter, const Tank *target) {
     Vector3 shooter_gun = vec3_add(tank_combat_pos(shooter, PLAYER_HEIGHT), (Vector3){ 0.0f, 0.4f, 0.0f });
     Vector3 target_center = vec3_add(tank_combat_pos(target, PLAYER_HEIGHT), (Vector3){ 0.0f, 0.5f, 0.0f });
     return !terrain_line_blocked((Vec3){ shooter_gun.x, shooter_gun.y, shooter_gun.z },
                                  (Vec3){ target_center.x, target_center.y, target_center.z });
 }
 
-int main(void)
-{
+int main(void) {
     srand((unsigned)time(NULL));
     ammo_init_table();
 
@@ -809,7 +44,7 @@ int main(void)
     const char *wayland_display = getenv("WAYLAND_DISPLAY");
     if ((display == NULL || display[0] == '\0') &&
         (wayland_display == NULL || wayland_display[0] == '\0')) {
-        fprintf(stderr, "Raylib 3D needs a graphical desktop session (Wayland or X11). Use ./leopard_sim for the console version if you are in a headless shell.\n");
+        fprintf(stderr, "Raylib 3D needs a graphical desktop session (Wayland or X11).\n");
         return 1;
     }
 
@@ -823,7 +58,7 @@ int main(void)
     DisableCursor();
     init_scene_assets(&assets);
 
-    const int target_ai = 1; /* always on in the 3D build; console has the toggle */
+    const int target_ai = 1;
     double sim_time_s = 0.0;
     int gunner_sight_active = 0;
     float camera_kick = 0.0f;
@@ -834,8 +69,7 @@ int main(void)
     MatchState wave_state;
     match_state_init(&wave_state);
     SupplyDepot depot = { { SUPPLY_DEPOT_X, SUPPLY_DEPOT_Y }, SUPPLY_RADIUS_M, SUPPLY_HEAL_PER_S };
-    ImpactEffectList effects;
-    memset(&effects, 0, sizeof(effects));
+    ImpactEffectList effects = {0};
 
     Camera3D camera = { 0 };
     camera.position = (Vector3){ -14.0f, 8.0f, -14.0f };
@@ -857,7 +91,7 @@ int main(void)
             tank_init_generic_mbt(&target, "Target", vec2_make(700.0, 150.0), 200.0);
             match_state_init(&wave_state);
             ai_state_init(&target_ai_state, AI_PREFERRED_RANGE_M);
-            memset(&effects, 0, sizeof(effects));
+            effects.count = 0;
             sim_time_s = 0.0;
             ctrl.desired_turret_azimuth_deg = 0.0;
             ctrl.desired_gun_elevation_deg = 0.0;
@@ -869,15 +103,12 @@ int main(void)
         if (IsKeyPressed(KEY_TWO)) player.current_ammo = AMMO_HEAT;
         if (IsKeyPressed(KEY_THREE)) player.current_ammo = AMMO_HE;
 
-        double throttle = 0.0;
+        double throttle = 0.0, steer = 0.0;
         if (IsKeyDown(KEY_W)) throttle += 1.0;
         if (IsKeyDown(KEY_S)) throttle -= 1.0;
-
-        double steer = 0.0;
         if (IsKeyDown(KEY_D)) steer += 1.0;
         if (IsKeyDown(KEY_A)) steer -= 1.0;
 
-        /* keyboard trim and mouse both nudge the same desired-aim state */
         if (IsKeyDown(KEY_L)) ctrl.desired_turret_azimuth_deg = norm_deg(ctrl.desired_turret_azimuth_deg + player.turret_traverse_dps * dt);
         if (IsKeyDown(KEY_J)) ctrl.desired_turret_azimuth_deg = norm_deg(ctrl.desired_turret_azimuth_deg - player.turret_traverse_dps * dt);
         if (IsKeyDown(KEY_I)) ctrl.desired_gun_elevation_deg = clampd(ctrl.desired_gun_elevation_deg + player.gun_elevation_dps * dt, player.gun_elevation_min_deg, player.gun_elevation_max_deg);
@@ -885,8 +116,7 @@ int main(void)
         update_gunner_control_from_mouse(&ctrl, &player);
 
         double player_turret = 0.0, player_elev = 0.0;
-        turret_input_toward(&player, ctrl.desired_turret_azimuth_deg, ctrl.desired_gun_elevation_deg, dt,
-                            &player_turret, &player_elev);
+        turret_input_toward(&player, ctrl.desired_turret_azimuth_deg, ctrl.desired_gun_elevation_deg, dt, &player_turret, &player_elev);
 
         tank_update_movement(&player, throttle, steer, terrain_grip_at(player.position_m), dt);
         tank_update_turret(&player, player_turret, player_elev, dt);
@@ -910,8 +140,7 @@ int main(void)
             wave_state.respawn_timer_s -= dt;
             if (wave_state.respawn_timer_s <= 0.0) {
                 wave_state.wave++;
-                match_spawn_wave(&wave_state, &target, "Target", vec2_make(WAVE_ORIGIN_X, WAVE_ORIGIN_Y),
-                                 WAVE_MIN_RANGE_M, WAVE_MAX_RANGE_M);
+                match_spawn_wave(&wave_state, &target, "Target", vec2_make(WAVE_ORIGIN_X, WAVE_ORIGIN_Y), WAVE_MIN_RANGE_M, WAVE_MAX_RANGE_M);
                 ai_state_init(&target_ai_state, AI_PREFERRED_RANGE_M);
             }
         }

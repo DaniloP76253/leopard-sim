@@ -1,26 +1,28 @@
-CC      = gcc
-CFLAGS  = -std=c11 -Wall -Wextra -O2 -Iinclude
-LDFLAGS = -lm
+RUST_DIR = rust
+GODOT_DIR = godot
+GODOT_BIN_DIR = $(GODOT_DIR)/bin
+LIB_NAME = libleopard_sim.so
+CARGO = source "$$HOME/.cargo/env" && cd $(RUST_DIR) && cargo
 
-RAYLIB_ROOT = third_party/raylib/install
-RAYLIB_BUILD_DIR = third_party/raylib/build
-RAYLIB_SRC_DIR = third_party/raylib/src
-RAYLIB_LIB = $(RAYLIB_ROOT)/lib64/libraylib.a
-RAYLIB_LINK_LIBS = -lGL -lpthread -ldl -lrt -lX11 -lXrandr -lXi -lXcursor -lXinerama -lXext
+.PHONY: all build-rust test-rust run-godot editor clean
 
-BIN = leopard_sim_3d
-SRC = src/ammo.c src/armor.c src/tank.c src/projectile.c src/combat.c src/terrain.c src/ai.c src/match.c src/main_raylib_fixed.c
+all: build-rust
 
-.PHONY: all clean run
+build-rust:
+	@mkdir -p $(GODOT_BIN_DIR)
+	@bash -c '$(CARGO) build'
+	@cp $(RUST_DIR)/target/debug/$(LIB_NAME) $(GODOT_BIN_DIR)/$(LIB_NAME)
+	@echo "Build complete: $(GODOT_BIN_DIR)/$(LIB_NAME)"
 
-all:
-	@set -e; \
-	cmake -S third_party/raylib -B $(RAYLIB_BUILD_DIR) -DCMAKE_INSTALL_PREFIX="$(CURDIR)/$(RAYLIB_ROOT)" -DBUILD_EXAMPLES=OFF -DBUILD_SHARED_LIBS=OFF -DPLATFORM=Desktop -DGLFW_BUILD_WAYLAND=ON >/dev/null; \
-	cmake --build $(RAYLIB_BUILD_DIR) --target install -j$$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2) >/dev/null; \
-	$(CC) $(CFLAGS) -I$(RAYLIB_SRC_DIR) -I$(RAYLIB_ROOT)/include -o $(BIN) $(SRC) $(RAYLIB_LIB) $(RAYLIB_LINK_LIBS) $(LDFLAGS)
+test-rust:
+	@bash -c '$(CARGO) test'
 
-run: all
-	./$(BIN)
+run-godot: build-rust
+	flatpak-spawn --host flatpak run org.godotengine.Godot --path $(CURDIR)/$(GODOT_DIR)
+
+editor: build-rust
+	flatpak-spawn --host flatpak run org.godotengine.Godot --editor --path $(CURDIR)/$(GODOT_DIR)
 
 clean:
-	rm -f $(BIN)
+	@bash -c '$(CARGO) clean'
+	@rm -rf $(GODOT_BIN_DIR)/$(LIB_NAME)

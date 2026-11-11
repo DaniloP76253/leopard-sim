@@ -23,6 +23,7 @@ pub struct ArmorProfile {
     pub hull_side: ArmorPlate,
     pub hull_rear: ArmorPlate,
     pub turret_front: ArmorPlate,
+    pub turret_mantlet: ArmorPlate,
     pub turret_side: ArmorPlate,
     pub turret_rear: ArmorPlate,
     pub roof: ArmorPlate,

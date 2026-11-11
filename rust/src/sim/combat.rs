@@ -2,8 +2,8 @@ use super::ammo::AmmoStats;
 use super::armor::{armor_effective_thickness, armor_plate_world_normal, ArmorPlate};
 use super::projectile::Projectile;
 use super::tank::Tank;
-use super::terrain::terrain_height_at;
-use super::vecmath::{clampd, norm_deg, rad2deg, Vec3};
+use super::terrain::terrain_world_height_at;
+use super::vecmath::{clampd, deg2rad, norm_deg, rad2deg, Vec3};
 
 pub const MAX_FLIGHT_TIME_S: f64 = 15.0;
 pub const HIT_RADIUS_M: f64 = 2.0;
@@ -26,6 +26,8 @@ pub struct CombatShotResult {
     pub outcome: ShotOutcome,
     pub impact_point: Vec3,
     pub range_m: f64,
+    pub flight_time_s: f64,
+    pub trajectory_points: Vec<Vec3>,
     pub damage_dealt: f64,
     pub face_label: Option<&'static str>,
     pub message: String,
@@ -37,6 +39,8 @@ impl Default for CombatShotResult {
             outcome: ShotOutcome::Invalid,
             impact_point: Vec3::new(0.0, 0.0, 0.0),
             range_m: 0.0,
+            flight_time_s: 0.0,
+            trajectory_points: Vec::new(),
             damage_dealt: 0.0,
             face_label: None,
             message: String::new(),
@@ -53,6 +57,7 @@ enum PlateTarget {
     HullSide,
     HullRear,
     TurretFront,
+    GunMantlet,
     TurretSide,
     TurretRear,
     Roof,
@@ -86,6 +91,11 @@ fn apply_module_damage(
             target.module_turret_hp -= impact * 0.9;
             target.module_gun_hp -= impact * 1.1;
             target.module_optics_hp -= impact * 0.8;
+        }
+        PlateTarget::GunMantlet => {
+            target.module_turret_hp -= impact * 0.8;
+            target.module_gun_hp -= impact * 1.2;
+            target.module_optics_hp -= impact * 0.4;
         }
         PlateTarget::TurretSide => {
             target.module_turret_hp -= impact * 0.7;
@@ -136,6 +146,11 @@ fn apply_nonpenetration_damage(
             target.module_gun_hp -= splash * 0.7;
             target.module_optics_hp -= splash * 0.6;
         }
+        PlateTarget::GunMantlet => {
+            target.module_turret_hp -= splash * 0.5;
+            target.module_gun_hp -= splash * 0.8;
+            target.module_optics_hp -= splash * 0.3;
+        }
         PlateTarget::TurretSide => {
             target.module_turret_hp -= splash * 0.5;
             target.module_gun_hp -= splash * 0.5;
@@ -160,6 +175,14 @@ fn apply_nonpenetration_damage(
 }
 
 pub fn combat_fire_shot(shooter: &mut Tank, target: &mut Tank) -> CombatShotResult {
+    combat_fire_shot_with_bore(shooter, target, None)
+}
+
+pub fn combat_fire_shot_with_bore(
+    shooter: &mut Tank,
+    target: &mut Tank,
+    physical_bore: Option<(Vec3, Vec3)>,
+) -> CombatShotResult {
     let mut r = CombatShotResult::default();
 
     if !target.alive {
@@ -181,8 +204,8 @@ pub fn combat_fire_shot(shooter: &mut Tank, target: &mut Tank) -> CombatShotResu
     }
 
     let ammo = shooter.current_ammo.stats();
-    let shooter_ground_z = terrain_height_at(shooter.position_m);
-    let target_ground_z = terrain_height_at(target.position_m);
+    let shooter_ground_z = terrain_world_height_at(shooter.position_m);
+    let target_ground_z = terrain_world_height_at(target.position_m);
 
     let mut dispersion_deg = 0.05;
     if shooter.moved_this_tick {
@@ -192,22 +215,45 @@ pub fn combat_fire_shot(shooter: &mut Tank, target: &mut Tank) -> CombatShotResu
         dispersion_deg += 0.15;
     }
 
-    let az = shooter.absolute_turret_azimuth_deg() + frand_symmetric(dispersion_deg);
-    let el = shooter.gun_elevation_deg + frand_symmetric(dispersion_deg);
+    let (origin, base_az, base_el) = if let Some((origin, direction)) = physical_bore {
+        let direction = direction.normalize();
+        let horizontal = (direction.x * direction.x + direction.y * direction.y).sqrt();
+        (
+            origin,
+            rad2deg(direction.y.atan2(direction.x)),
+            rad2deg(direction.z.atan2(horizontal)),
+        )
+    } else {
+        (
+            Vec3::new(
+                shooter.position_m.x,
+                shooter.position_m.y,
+                shooter_ground_z + GUN_HEIGHT_M,
+            ),
+            shooter.absolute_turret_azimuth_deg(),
+            shooter.gun_elevation_deg,
+        )
+    };
+    let az = base_az + frand_symmetric(dispersion_deg);
+    let el = base_el + frand_symmetric(dispersion_deg);
 
     let mut proj = Projectile::new();
     proj.launch(
-        shooter.position_m,
-        shooter_ground_z + GUN_HEIGHT_M,
+        super::vecmath::Vec2::new(origin.x, origin.y),
+        origin.z,
         az,
         el,
         ammo.muzzle_velocity_ms,
         shooter.current_ammo,
     );
 
+    let mut trajectory_points = vec![origin];
+    let mut trajectory_step = 0_u32;
+
     let mut closest_dist = 1e9;
     let mut hit = false;
     let mut hit_z = 0.0;
+    let mut hit_position = super::vecmath::Vec2::new(0.0, 0.0);
     let mut hit_range_m = 0.0;
     let mut terrain_blocked = false;
 
@@ -217,6 +263,10 @@ pub fn combat_fire_shot(shooter: &mut Tank, target: &mut Tank) -> CombatShotResu
         let prev_dist_traveled = proj.distance_traveled_m;
 
         proj.step(ammo, 0.01);
+        trajectory_step += 1;
+        if trajectory_step % 2 == 0 {
+            trajectory_points.push(Vec3::new(proj.pos.x, proj.pos.y, proj.z));
+        }
 
         let seg = proj.pos.sub(prev_pos);
         let to_target = target.position_m.sub(prev_pos);
@@ -234,17 +284,25 @@ pub fn combat_fire_shot(shooter: &mut Tank, target: &mut Tank) -> CombatShotResu
         if d < closest_dist {
             closest_dist = d;
         }
-        if terrain_height_at(proj.pos) > proj.z {
+        if terrain_world_height_at(proj.pos) > proj.z {
             terrain_blocked = true;
             break;
         }
         if d <= HIT_RADIUS_M && local_z_at_closest >= 0.0 && local_z_at_closest <= SILHOUETTE_MAX_Z {
             hit = true;
             hit_z = local_z_at_closest;
+            hit_position = closest_point;
             hit_range_m = prev_dist_traveled + tparam * (proj.distance_traveled_m - prev_dist_traveled);
             break;
         }
     }
+
+    let final_position = Vec3::new(proj.pos.x, proj.pos.y, proj.z);
+    if trajectory_points.last().copied() != Some(final_position) {
+        trajectory_points.push(final_position);
+    }
+    r.flight_time_s = proj.time_s;
+    r.trajectory_points = trajectory_points;
 
     shooter.ammo_count[ammo_idx] -= 1;
     shooter.reload_timer_s = shooter.reload_time_s;
@@ -300,9 +358,20 @@ pub fn combat_fire_shot(shooter: &mut Tank, target: &mut Tank) -> CombatShotResu
         let face_offset;
         if abs_rel <= 45.0 {
             if is_turret {
-                plate = target.armor.turret_front;
-                face_label = "Turret front";
-                plate_target = PlateTarget::TurretFront;
+                let turret_yaw = deg2rad(parent_yaw);
+                let turret_right = super::vecmath::Vec2::new(-turret_yaw.sin(), turret_yaw.cos());
+                let hit_offset = hit_position.sub(target.position_m);
+                let mantlet_lateral = hit_offset.x * turret_right.x + hit_offset.y * turret_right.y;
+                let hits_mantlet = (2.25..=2.95).contains(&hit_z) && mantlet_lateral.abs() <= 0.32;
+                if hits_mantlet {
+                    plate = target.armor.turret_mantlet;
+                    face_label = "Gun mantlet";
+                    plate_target = PlateTarget::GunMantlet;
+                } else {
+                    plate = target.armor.turret_front;
+                    face_label = "Turret front";
+                    plate_target = PlateTarget::TurretFront;
+                }
             } else {
                 plate = target.armor.hull_front;
                 face_label = "Hull front (glacis)";
@@ -361,7 +430,7 @@ pub fn combat_fire_shot(shooter: &mut Tank, target: &mut Tank) -> CombatShotResu
         let catastrophic = match plate_target {
             PlateTarget::TurretRear => roll < 40,
             PlateTarget::Roof => roll < 25,
-            PlateTarget::TurretFront | PlateTarget::HullFront => roll < 8,
+            PlateTarget::TurretFront | PlateTarget::GunMantlet | PlateTarget::HullFront => roll < 8,
             _ => roll < 15,
         };
 

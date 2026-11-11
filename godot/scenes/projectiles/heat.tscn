@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/projectiles/projectile_visual.gd" id="1_script"]
+[ext_resource type="ArrayMesh" path="res://assets/models/projectiles/heat.obj" id="2_mesh"]
+
+[node name="HEATVisual" type="Node3D"]
+script = ExtResource("1_script")
+projectile_mesh = ExtResource("2_mesh")
+tracer_color = Color(1, 0.78, 0.28, 0.9)
+model_center_forward = 0.39

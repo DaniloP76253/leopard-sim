@@ -1,9 +1,11 @@
 [gd_scene format=3]
 
-[ext_resource type="ArrayMesh" uid="uid://ct2s8w0wu1phk" path="res://assets/models/hull.obj" id="1_hull"]
-[ext_resource type="ArrayMesh" uid="uid://cien2x8c57v1q" path="res://assets/models/turret.obj" id="2_turret"]
-[ext_resource type="ArrayMesh" uid="uid://b510k1pey81h2" path="res://assets/models/generated/barrel.obj" id="3_barrel"]
-[ext_resource type="Material" path="res://assets/textures/metal.tres" id="4_metal"]
+[ext_resource type="ArrayMesh" path="res://assets/models/tank/leopard_2a7/models/hull.obj" id="1_hull"]
+[ext_resource type="ArrayMesh" path="res://assets/models/tank/leopard_2a7/models/turret.obj" id="2_turret"]
+[ext_resource type="ArrayMesh" path="res://assets/models/tank/leopard_2a7/models/barrel.obj" id="3_barrel"]
+[ext_resource type="Material" path="res://assets/models/tank/leopard_2a7/materials/metal.tres" id="4_metal"]
+[ext_resource type="ArrayMesh" path="res://assets/models/tank/leopard_2a7/models/mantlet.obj" id="5_mantlet"]
+[ext_resource type="ArrayMesh" path="res://assets/models/tank/leopard_2a7/models/bore_evacuator.obj" id="6_bore_evacuator"]
 
 [node name="TankVisual" type="Node3D"]
 
@@ -53,7 +55,17 @@ mesh = ExtResource("2_turret")
 [node name="Gun" type="Node3D" parent="Turret"]
 position = Vector3(1.6, 0.35, 0)
 
+[node name="MantletMesh" type="MeshInstance3D" parent="Turret/Gun"]
+rotation = Vector3(3.1415927, 0, 0)
+mesh = ExtResource("5_mantlet")
+material_override = ExtResource("4_metal")
+
 [node name="BarrelMesh" type="MeshInstance3D" parent="Turret/Gun"]
 transform = Transform3D(4.371139e-08, 1, -8.742278e-08, 1, -4.371139e-08, 0, -3.821371e-15, -8.742278e-08, -1, 0, 0, 0)
 mesh = ExtResource("3_barrel")
+material_override = ExtResource("4_metal")
+
+[node name="BoreEvacuator" type="MeshInstance3D" parent="Turret/Gun"]
+transform = Transform3D(4.371139e-08, 1, -8.742278e-08, 1, -4.371139e-08, 0, -3.821371e-15, -8.742278e-08, -1, 3.3, 0, 0)
+mesh = ExtResource("6_bore_evacuator")
 material_override = ExtResource("4_metal")

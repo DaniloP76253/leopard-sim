@@ -1,15 +1,8 @@
 [gd_scene format=3 uid="uid://b00vjc0tqm01f"]
 
 [ext_resource type="Script" uid="uid://dlaggtbsxyj1k" path="res://scenes/main.gd" id="1_maingd"]
-[ext_resource type="ArrayMesh" uid="uid://ct2s8w0wu1phk" path="res://assets/models/hull.obj" id="2_hull"]
-[ext_resource type="ArrayMesh" uid="uid://cien2x8c57v1q" path="res://assets/models/turret.obj" id="3_turret"]
-[ext_resource type="ArrayMesh" uid="uid://b510k1pey81h2" path="res://assets/models/generated/barrel.obj" id="4_barrel"]
-[ext_resource type="ArrayMesh" uid="uid://da2m0guo1a407" path="res://assets/models/generated/terrain.obj" id="5_terrain"]
-[ext_resource type="Material" path="res://assets/textures/player_camo.tres" id="6_playercamo"]
-[ext_resource type="Material" path="res://assets/textures/enemy_camo.tres" id="7_enemycamo"]
-[ext_resource type="ArrayMesh" uid="uid://gign5apu3g60" path="res://assets/models/generated/track.obj" id="11_track"]
-[ext_resource type="Material" path="res://assets/textures/terrain.tres" id="8_terrainmat"]
-[ext_resource type="Material" path="res://assets/textures/metal.tres" id="9_metalmat"]
+[ext_resource type="ArrayMesh" path="res://assets/models/generated/world/terrain.obj" id="5_terrain"]
+[ext_resource type="Material" path="res://assets/models/generated/world/materials/terrain.tres" id="8_terrainmat"]
 [ext_resource type="Script" uid="uid://d1t3lvwb0xdlh" path="res://scenes/sight_overlay.gd" id="10_sight"]
 [ext_resource type="PackedScene" path="res://scenes/tank_visual.tscn" id="12_tank_visual"]
 
@@ -20,16 +13,11 @@ ambient_light_source = 2
 ambient_light_color = Color(0.65, 0.7, 0.75, 1)
 tonemap_mode = 2
 
-[sub_resource type="CylinderMesh" id="CylinderMesh_depot"]
-top_radius = 20.0
-bottom_radius = 20.0
-height = 0.5
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_tank_tracks"]
+friction = 0.1
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_tank"]
 size = Vector3(6.4, 1.8, 3.2)
-
-[sub_resource type="BoxShape3D" id="BoxShape3D_track"]
-size = Vector3(5.9, 0.28, 0.72)
 
 [node name="Main" type="TankGame" unique_id=38195964]
 script = ExtResource("1_maingd")
@@ -51,107 +39,88 @@ surface_material_override/0 = ExtResource("8_terrainmat")
 [node name="PlayerTank" type="TankChassis" parent="." unique_id=1043444151]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 7.2674704)
 mass = 67000.0
-linear_damp = 0.35
-angular_damp = 1.2
+physics_material_override = SubResource("PhysicsMaterial_tank_tracks")
 can_sleep = false
+linear_damp = 0.05
+angular_damp = 0.6
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="PlayerTank"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="PlayerTank" unique_id=142944468]
 shape = SubResource("BoxShape3D_tank")
 
-[node name="LeftTrackCollision" type="CollisionShape3D" parent="PlayerTank"]
-position = Vector3(0, -0.84, -1.95)
-shape = SubResource("BoxShape3D_track")
+[node name="Suspension" type="Node3D" parent="PlayerTank" unique_id=1002166701]
 
-[node name="RightTrackCollision" type="CollisionShape3D" parent="PlayerTank"]
-position = Vector3(0, -0.84, 1.95)
-shape = SubResource("BoxShape3D_track")
+[node name="Left" type="Node3D" parent="PlayerTank/Suspension" unique_id=1478946241]
 
-[node name="Suspension" type="Node3D" parent="PlayerTank"]
-
-[node name="Left" type="Node3D" parent="PlayerTank/Suspension"]
-
-[node name="0" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
-position = Vector3(-2.4, 0.25, -1.95)
+[node name="0" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=1300994331]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.4, 0.25, -1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="1" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
-position = Vector3(-1.6, 0.25, -1.95)
+[node name="1" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=1604297934]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.6, 0.25, -1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="2" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
-position = Vector3(-0.8, 0.25, -1.95)
+[node name="2" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=1909663867]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0.25, -1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="3" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
-position = Vector3(0, 0.25, -1.95)
+[node name="3" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=1859918329]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.25, -1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="4" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
-position = Vector3(0.8, 0.25, -1.95)
+[node name="4" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=1238699000]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.25, -1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="5" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
-position = Vector3(1.6, 0.25, -1.95)
+[node name="5" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=19222103]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.6, 0.25, -1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="6" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
-position = Vector3(2.4, 0.25, -1.95)
+[node name="6" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=464280911]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.4, 0.25, -1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="Right" type="Node3D" parent="PlayerTank/Suspension"]
+[node name="Right" type="Node3D" parent="PlayerTank/Suspension" unique_id=1638411628]
 
-[node name="0" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
-position = Vector3(-2.4, 0.25, 1.95)
+[node name="0" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=321262474]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.4, 0.25, 1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="1" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
-position = Vector3(-1.6, 0.25, 1.95)
+[node name="1" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=801769316]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.6, 0.25, 1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="2" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
-position = Vector3(-0.8, 0.25, 1.95)
+[node name="2" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=1156112860]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0.25, 1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="3" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
-position = Vector3(0, 0.25, 1.95)
+[node name="3" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=249280228]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.25, 1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="4" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
-position = Vector3(0.8, 0.25, 1.95)
+[node name="4" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=1979899877]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.25, 1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="5" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
-position = Vector3(1.6, 0.25, 1.95)
+[node name="5" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=328202646]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.6, 0.25, 1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="6" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
-position = Vector3(2.4, 0.25, 1.95)
+[node name="6" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=2121804947]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.4, 0.25, 1.95)
 target_position = Vector3(0, -1.55, 0)
-enabled = true
 
-[node name="Visual" parent="PlayerTank" instance=ExtResource("12_tank_visual")]
+[node name="Visual" parent="PlayerTank" unique_id=1345785170 instance=ExtResource("12_tank_visual")]
 
 [node name="EnemyTank" type="Node3D" parent="." unique_id=1279204780]
-[node name="Visual" parent="EnemyTank" instance=ExtResource("12_tank_visual")]
+
+[node name="Visual" parent="EnemyTank" unique_id=430661920 instance=ExtResource("12_tank_visual")]
 
 [node name="ChaseCamera" type="Camera3D" parent="." unique_id=1294951956]
 current = true
 fov = 55.0
 
 [node name="GunnerCamera" type="Camera3D" parent="." unique_id=1471411728]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 2.217326, 1.1714048, 0)
 fov = 20.0
 
 [node name="HUD" type="CanvasLayer" parent="." unique_id=1200872147]
@@ -190,37 +159,35 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("10_sight")
 
-[node name="PauseMenu" type="PanelContainer" parent="HUD"]
-visible = true
+[node name="PauseMenu" type="PanelContainer" parent="HUD" unique_id=2144083555]
 offset_left = -210.0
 offset_top = -220.0
 offset_right = 210.0
 offset_bottom = 220.0
 grow_horizontal = 2
 grow_vertical = 2
-mouse_filter = 0
 
-[node name="Margin" type="MarginContainer" parent="HUD/PauseMenu"]
+[node name="Margin" type="MarginContainer" parent="HUD/PauseMenu" unique_id=1913207174]
 layout_mode = 2
 theme_override_constants/margin_left = 24
 theme_override_constants/margin_top = 20
 theme_override_constants/margin_right = 24
 theme_override_constants/margin_bottom = 20
 
-[node name="VBox" type="VBoxContainer" parent="HUD/PauseMenu/Margin"]
+[node name="VBox" type="VBoxContainer" parent="HUD/PauseMenu/Margin" unique_id=169745560]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="Title" type="Label" parent="HUD/PauseMenu/Margin/VBox"]
+[node name="Title" type="Label" parent="HUD/PauseMenu/Margin/VBox" unique_id=919637687]
 layout_mode = 2
 theme_override_font_sizes/font_size = 26
 text = "PAUSED"
 
-[node name="SensitivityDescription" type="Label" parent="HUD/PauseMenu/Margin/VBox"]
+[node name="SensitivityDescription" type="Label" parent="HUD/PauseMenu/Margin/VBox" unique_id=761043656]
 layout_mode = 2
 text = "Mouse sensitivity (CS2 style, m_yaw 0.022)"
 
-[node name="SensitivitySlider" type="HSlider" parent="HUD/PauseMenu/Margin/VBox"]
+[node name="SensitivitySlider" type="HSlider" parent="HUD/PauseMenu/Margin/VBox" unique_id=747995358]
 custom_minimum_size = Vector2(0, 24)
 layout_mode = 2
 min_value = 0.1
@@ -228,14 +195,14 @@ max_value = 10.0
 step = 0.1
 value = 3.2
 
-[node name="SensitivityValue" type="Label" parent="HUD/PauseMenu/Margin/VBox"]
+[node name="SensitivityValue" type="Label" parent="HUD/PauseMenu/Margin/VBox" unique_id=244502320]
 layout_mode = 2
 
-[node name="CameraSensitivityDescription" type="Label" parent="HUD/PauseMenu/Margin/VBox"]
+[node name="CameraSensitivityDescription" type="Label" parent="HUD/PauseMenu/Margin/VBox" unique_id=588147784]
 layout_mode = 2
 text = "Free-look sensitivity"
 
-[node name="CameraSensitivitySlider" type="HSlider" parent="HUD/PauseMenu/Margin/VBox"]
+[node name="CameraSensitivitySlider" type="HSlider" parent="HUD/PauseMenu/Margin/VBox" unique_id=387767795]
 custom_minimum_size = Vector2(0, 24)
 layout_mode = 2
 min_value = 0.1
@@ -243,17 +210,17 @@ max_value = 3.0
 step = 0.1
 value = 1.0
 
-[node name="CameraSensitivityValue" type="Label" parent="HUD/PauseMenu/Margin/VBox"]
+[node name="CameraSensitivityValue" type="Label" parent="HUD/PauseMenu/Margin/VBox" unique_id=515903179]
 layout_mode = 2
 
-[node name="InvertMouse" type="CheckButton" parent="HUD/PauseMenu/Margin/VBox"]
+[node name="InvertMouse" type="CheckButton" parent="HUD/PauseMenu/Margin/VBox" unique_id=150483825]
 layout_mode = 2
 text = "Invert vertical mouse"
 
-[node name="ResumeButton" type="Button" parent="HUD/PauseMenu/Margin/VBox"]
+[node name="ResumeButton" type="Button" parent="HUD/PauseMenu/Margin/VBox" unique_id=1770354291]
 layout_mode = 2
 text = "Resume"
 
-[node name="QuitButton" type="Button" parent="HUD/PauseMenu/Margin/VBox"]
+[node name="QuitButton" type="Button" parent="HUD/PauseMenu/Margin/VBox" unique_id=917142167]
 layout_mode = 2
 text = "Exit"

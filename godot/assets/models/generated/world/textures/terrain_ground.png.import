@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://giavw2l230ev"
-path.s3tc="res://.godot/imported/player_camo.png-e2310bd111d1ab8d185d2a217e45ab16.s3tc.ctex"
+uid="uid://bdqvqrwqt4ov0"
+path.s3tc="res://.godot/imported/terrain_ground.png-1cef6c3ac2087a750acf3abd81d8cba0.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://assets/textures/player_camo.png"
-dest_files=["res://.godot/imported/player_camo.png-e2310bd111d1ab8d185d2a217e45ab16.s3tc.ctex"]
+source_file="res://assets/models/generated/world/textures/terrain_ground.png"
+dest_files=["res://.godot/imported/terrain_ground.png-1cef6c3ac2087a750acf3abd81d8cba0.s3tc.ctex"]
 
 [params]
 

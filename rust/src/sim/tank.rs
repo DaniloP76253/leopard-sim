@@ -5,6 +5,10 @@ use super::vecmath::{clampd, deg2rad, norm_deg, Vec2};
 pub const TURN_POWER_SHARE_MAX: f64 = 0.50;
 pub const TURN_SCRUB_DECEL_MSS: f64 = 0.45;
 
+// Leopard 2A7 gun geometry shared with the Godot tank assembly.
+pub const LEOPARD_GUN_BARREL_LENGTH_M: f64 = 5.685;
+pub const LEOPARD_BORE_EVACUATOR_OFFSET_M: f64 = 3.3;
+
 #[derive(Debug, Clone)]
 pub struct Tank {
     pub name: String,
@@ -113,6 +117,7 @@ impl Tank {
                 hull_side: ArmorPlate::new("Hull side", 25.0, 0.0),
                 hull_rear: ArmorPlate::new("Hull rear", 25.0, 10.0),
                 turret_front: ArmorPlate::new("Turret front (cheek)", 250.0, 15.0),
+                turret_mantlet: ArmorPlate::new("Gun mantlet", 250.0, 15.0),
                 turret_side: ArmorPlate::new("Turret side", 60.0, 5.0),
                 turret_rear: ArmorPlate::new("Turret bustle", 40.0, 0.0),
                 roof: ArmorPlate::new("Roof", 20.0, 90.0),
@@ -177,6 +182,7 @@ impl Tank {
                 hull_side: ArmorPlate::new("Hull side", 20.0, 0.0),
                 hull_rear: ArmorPlate::new("Hull rear", 20.0, 0.0),
                 turret_front: ArmorPlate::new("Turret front (cheek)", 230.0, 10.0),
+                turret_mantlet: ArmorPlate::new("Gun mantlet", 230.0, 10.0),
                 turret_side: ArmorPlate::new("Turret side", 45.0, 10.0),
                 turret_rear: ArmorPlate::new("Turret bustle", 30.0, 0.0),
                 roof: ArmorPlate::new("Roof", 20.0, 90.0),

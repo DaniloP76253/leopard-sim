@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://cien2x8c57v1q"
+path="res://.godot/imported/turret.obj-5104d23e4f90d604b584ae868ab2e04c.mesh"
+
+[deps]
+
+files=["res://.godot/imported/turret.obj-5104d23e4f90d604b584ae868ab2e04c.mesh"]
+
+source_file="res://assets/models/tank/leopard_2a7/models/turret.obj"
+dest_files=["res://.godot/imported/turret.obj-5104d23e4f90d604b584ae868ab2e04c.mesh", "res://.godot/imported/turret.obj-5104d23e4f90d604b584ae868ab2e04c.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

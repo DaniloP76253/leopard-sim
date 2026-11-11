@@ -1,7 +1,7 @@
 # Blender 5.2.2 LTS
 # www.blender.org
-mtllib muzzle_brake.mtl
-o muzzle_brake
+mtllib bore_evacuator.mtl
+o bore_evacuator
 v 0.000000 0.062320 -0.218725
 v 0.128564 -0.000000 -0.176951
 v 0.000000 -0.000000 -0.218725

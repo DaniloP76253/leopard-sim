@@ -3,16 +3,16 @@ use godot::prelude::*;
 
 use crate::sim::ai::{ai_compute_command, AiState};
 use crate::sim::ammo::AmmoTypeId;
-use crate::sim::combat::{combat_fire_shot, CombatShotResult};
+use crate::sim::combat::{combat_fire_shot, combat_fire_shot_with_bore, CombatShotResult};
 use crate::sim::match_state::{MatchState, SupplyDepot};
 use crate::sim::render_helpers::{
-    tank_boresight_dir, terrain_visual_height_at, turret_has_line_of_sight, turret_input_toward,
+    terrain_visual_height_at, turret_has_line_of_sight, turret_input_toward,
     update_chassis_pose, ELEVATION_MOUSE_SENS_DEG_PER_PX, PLAYER_HEIGHT,
     TURRET_MOUSE_SENS_DEG_PER_PX,
 };
-use crate::sim::tank::Tank;
+use crate::sim::tank::{Tank, LEOPARD_BORE_EVACUATOR_OFFSET_M, LEOPARD_GUN_BARREL_LENGTH_M};
 use crate::sim::terrain::terrain_grip_at;
-use crate::sim::vecmath::{clampd, deg2rad, norm_deg, Vec2};
+use crate::sim::vecmath::{clampd, deg2rad, norm_deg, Vec2, Vec3};
 
 const SIM_DT_MAX: f64 = 0.05;
 const AI_PREFERRED_RANGE_M: f64 = 350.0;
@@ -40,6 +40,8 @@ pub struct TankGame {
 
     desired_turret_azimuth_deg: f64,
     desired_gun_elevation_deg: f64,
+    player_bore_origin: Vec3,
+    player_bore_direction: Vec3,
 
     gunner_sight_active: bool,
     sim_time_s: f64,
@@ -71,6 +73,8 @@ impl INode3D for TankGame {
             depot,
             desired_turret_azimuth_deg: 0.0,
             desired_gun_elevation_deg: 0.0,
+            player_bore_origin: Vec3::new(0.0, 0.0, 0.0),
+            player_bore_direction: Vec3::new(1.0, 0.0, 0.0),
             gunner_sight_active: false,
             sim_time_s: 0.0,
             last_player_shot: String::new(),
@@ -99,8 +103,6 @@ impl TankGame {
 
         self.player.update_turret(p_turret, p_elev, delta);
         self.player.tick_reload(delta);
-        update_chassis_pose(&mut self.player);
-
         if self.target.alive {
             let cmd = ai_compute_command(
                 &mut self.ai_state,
@@ -170,6 +172,8 @@ impl TankGame {
         self.sim_time_s = 0.0;
         self.desired_turret_azimuth_deg = 0.0;
         self.desired_gun_elevation_deg = 0.0;
+        self.player_bore_origin = Vec3::new(0.0, 0.0, 0.0);
+        self.player_bore_direction = Vec3::new(1.0, 0.0, 0.0);
         self.gunner_sight_active = false;
         self.last_player_shot.clear();
         self.last_enemy_shot.clear();
@@ -203,9 +207,36 @@ impl TankGame {
     }
 
     #[func]
-    pub fn sync_player_chassis_state(&mut self, position: Vector3, heading_deg: f64) {
+    pub fn sync_player_chassis_state(
+        &mut self,
+        position: Vector3,
+        heading_deg: f64,
+        speed_ms: f64,
+        hull_pitch_deg: f64,
+        delta: f64,
+    ) {
         self.player.position_m = Vec2::new(position.x as f64, position.z as f64);
         self.player.heading_deg = norm_deg(heading_deg);
+        self.player.speed_ms = speed_ms;
+        self.player.hull_pitch_deg = hull_pitch_deg;
+        self.player.left_track_speed_ms = speed_ms;
+        self.player.right_track_speed_ms = speed_ms;
+        self.player.left_track_phase_m += speed_ms * delta;
+        self.player.right_track_phase_m += speed_ms * delta;
+    }
+
+    #[func]
+    pub fn sync_player_gun_bore(&mut self, origin: Vector3, direction: Vector3) {
+        let direction = direction.normalized();
+        let muzzle = origin + direction * LEOPARD_GUN_BARREL_LENGTH_M as f32;
+        self.player_bore_origin = Vec3::new(muzzle.x as f64, muzzle.z as f64, muzzle.y as f64);
+        self.player_bore_direction =
+            Vec3::new(direction.x as f64, direction.z as f64, direction.y as f64).normalize();
+    }
+
+    #[func]
+    pub fn get_bore_evacuator_offset_m(&self) -> f64 {
+        LEOPARD_BORE_EVACUATOR_OFFSET_M
     }
 
     #[func]
@@ -217,10 +248,16 @@ impl TankGame {
             return dict;
         }
 
-        let res: CombatShotResult = combat_fire_shot(&mut self.player, &mut self.target);
+        let res: CombatShotResult = combat_fire_shot_with_bore(
+            &mut self.player,
+            &mut self.target,
+            Some((self.player_bore_origin, self.player_bore_direction)),
+        );
         self.last_player_shot = res.message.clone();
 
         dict.set("success", true);
+        dict.set("fired", !res.trajectory_points.is_empty());
+        dict.set("ammo_type", self.player.current_ammo.to_index() as i32);
         dict.set("outcome", res.outcome as i32);
         dict.set(
             "impact_point",
@@ -231,8 +268,19 @@ impl TankGame {
             ),
         );
         dict.set("range_m", res.range_m);
+        dict.set("flight_time_s", res.flight_time_s);
         dict.set("damage", res.damage_dealt);
         dict.set("message", res.message.as_str());
+
+        let mut trajectory: Array<Vector3> = Array::new();
+        for point in res.trajectory_points {
+            trajectory.push(Vector3::new(
+                point.x as f32,
+                point.z as f32,
+                point.y as f32,
+            ));
+        }
+        dict.set("trajectory", &trajectory.to_variant());
 
         if !self.target.alive && self.wave_state.respawn_timer_s <= 0.0 {
             self.wave_state.kills += 1;
@@ -315,15 +363,21 @@ impl TankGame {
 
     #[func]
     pub fn get_player_boresight_dir(&self) -> Vector3 {
-        let dir = tank_boresight_dir(&self.player);
-        Vector3::new(dir.x as f32, dir.y as f32, dir.z as f32)
+        Vector3::new(
+            self.player_bore_direction.x as f32,
+            self.player_bore_direction.z as f32,
+            self.player_bore_direction.y as f32,
+        )
     }
 
     #[func]
     pub fn get_boresight_target_point(&self) -> Vector3 {
-        let turret_pos = self.get_player_turret_world_pos();
         let dir = self.get_player_boresight_dir();
-        turret_pos + dir * 260.0
+        Vector3::new(
+            self.player_bore_origin.x as f32,
+            self.player_bore_origin.z as f32,
+            self.player_bore_origin.y as f32,
+        ) + dir * 260.0
     }
 
     #[func]
@@ -332,7 +386,7 @@ impl TankGame {
         let az = deg2rad(norm_deg(
             self.player.heading_deg + self.desired_turret_azimuth_deg,
         ));
-        let el = deg2rad(self.desired_gun_elevation_deg);
+        let el = deg2rad(self.desired_gun_elevation_deg + self.player.hull_pitch_deg);
         let dir = Vector3::new(
             (el.cos() * az.cos()) as f32,
             el.sin() as f32,

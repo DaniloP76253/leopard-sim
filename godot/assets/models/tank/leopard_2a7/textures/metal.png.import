@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://7h46d4j1rdrg"
-path.s3tc="res://.godot/imported/enemy_camo.png-474306ffb92603b1e386a17cb233dd98.s3tc.ctex"
+uid="uid://b38xpln4txv17"
+path.s3tc="res://.godot/imported/metal.png-0e0279f3d18f75f7fe23303cb4501beb.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://assets/textures/enemy_camo.png"
-dest_files=["res://.godot/imported/enemy_camo.png-474306ffb92603b1e386a17cb233dd98.s3tc.ctex"]
+source_file="res://assets/models/tank/leopard_2a7/textures/metal.png"
+dest_files=["res://.godot/imported/metal.png-0e0279f3d18f75f7fe23303cb4501beb.s3tc.ctex"]
 
 [params]
 

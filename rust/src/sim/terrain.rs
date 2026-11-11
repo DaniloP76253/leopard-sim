@@ -38,6 +38,13 @@ pub fn terrain_height_at(pos: Vec2) -> f64 {
     ridge + rolling + hill_a + hill_b + hill_c + berm
 }
 
+/// Height used by the Godot terrain mesh and all world-space objects.
+/// The logical height is remapped to the terrain mesh's 0..20 m range.
+pub fn terrain_world_height_at(pos: Vec2) -> f64 {
+    let logical = terrain_height_at(pos);
+    clampd((logical + 5.0) / 12.0, 0.0, 1.0) * 20.0
+}
+
 pub fn terrain_surface_slope_at(pos: Vec2) -> f64 {
     const STEP: f64 = 1.5;
     let h_l = terrain_height_at(Vec2::new(pos.x - STEP, pos.y));
@@ -66,7 +73,7 @@ pub fn terrain_line_blocked(from: Vec3, to: Vec3) -> bool {
         let t = (i as f64) / (STEPS as f64);
         let xy = Vec2::new(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
         let z = from.z + (to.z - from.z) * t;
-        if terrain_height_at(xy) + 0.05 > z {
+        if terrain_world_height_at(xy) + 0.05 > z {
             return true;
         }
     }

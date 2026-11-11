@@ -1,5 +1,5 @@
 use super::tank::Tank;
-use super::terrain::{terrain_height_at, terrain_line_blocked};
+use super::terrain::{terrain_height_at, terrain_line_blocked, terrain_world_height_at};
 use super::vecmath::{clampd, deg2rad, norm_deg, rad2deg, Vec2, Vec3};
 
 pub const PLAYER_HEIGHT: f32 = 1.45;
@@ -16,9 +16,7 @@ pub fn lerpf(from: f32, to: f32, t: f32) -> f32 {
 }
 
 pub fn terrain_visual_height_at(pos: Vec2) -> f32 {
-    let logical = terrain_height_at(pos);
-    let normalized = clampd((logical + 5.0) / 12.0, 0.0, 1.0);
-    (normalized * 20.0) as f32
+    terrain_world_height_at(pos) as f32
 }
 
 pub fn update_chassis_pose(t: &mut Tank) {
@@ -70,12 +68,12 @@ pub fn turret_has_line_of_sight(shooter: &Tank, target: &Tank) -> bool {
     let shooter_gun = Vec3::new(
         shooter.position_m.x,
         shooter.position_m.y,
-        terrain_height_at(shooter.position_m) + PLAYER_HEIGHT as f64 + 0.4,
+        terrain_world_height_at(shooter.position_m) + PLAYER_HEIGHT as f64 + 0.4,
     );
     let target_center = Vec3::new(
         target.position_m.x,
         target.position_m.y,
-        terrain_height_at(target.position_m) + PLAYER_HEIGHT as f64 + 0.5,
+        terrain_world_height_at(target.position_m) + PLAYER_HEIGHT as f64 + 0.5,
     );
     !terrain_line_blocked(shooter_gun, target_center)
 }
@@ -105,6 +103,6 @@ pub fn turret_input_toward(
 
 pub fn tank_boresight_dir(t: &Tank) -> Vec3 {
     let az = deg2rad(t.absolute_turret_azimuth_deg());
-    let el = deg2rad(t.gun_elevation_deg);
+    let el = deg2rad(t.gun_elevation_deg + t.hull_pitch_deg);
     Vec3::new(el.cos() * az.cos(), el.sin(), el.cos() * az.sin())
 }

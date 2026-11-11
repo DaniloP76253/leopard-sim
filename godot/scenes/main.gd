@@ -6,18 +6,29 @@ const DEFAULT_MOUSE_SENSITIVITY := 3.2
 const DEFAULT_CAMERA_SENSITIVITY := 1.0
 const TRACK_LINK_COUNT := 56
 const TRACK_HALF_GAUGE := 1.95
-const TRACK_LINK_SCALE := Vector3(0.115, 0.18, 0.36)
+const PLAYER_TANK_RENDER_LAYER := 2
 const ROAD_WHEEL_X := [-2.4, -1.6, -0.8, 0.0, 0.8, 1.6, 2.4]
 const RETURN_ROLLER_X := [-1.6, -0.5, 0.5, 1.6]
 const IDLER_X := 2.78
 const SPROCKET_X := -2.78
-const IDLER_RADIUS := 0.66
-const SPROCKET_RADIUS := 0.78
-const ROAD_WHEEL_BASE_Y := -0.62
-const RETURN_ROLLER_BASE_Y := 0.34
-const TRACK_MESH = preload("res://assets/models/generated/track.obj")
-const PLAYER_CAMO = preload("res://assets/textures/player_camo.tres")
-const ENEMY_CAMO = preload("res://assets/textures/enemy_camo.tres")
+const END_WHEEL_RADIUS := 0.70
+const SPROCKET_RADIUS := END_WHEEL_RADIUS
+const IDLER_RADIUS := END_WHEEL_RADIUS
+const END_WHEEL_Y := -0.34          # centro de sprocket e idler
+const ROAD_WHEEL_BASE_Y := -0.62    # centro de las ruedas de carga
+const ROAD_WHEEL_RADIUS := 0.42
+const RETURN_ROLLER_BASE_Y := 0.0   # centro real = BASE_Y + 0.12
+const LINK_HALF_THICKNESS := 0.054
+const TRACK_MESH_LENGTH := 5.6      # largo de track.obj en X
+const TRACK_MESH = preload("res://assets/models/tank/leopard_2a7/models/track.obj")
+const PLAYER_CAMO = preload("res://assets/models/tank/leopard_2a7/materials/player_camo.tres")
+const ENEMY_CAMO = preload("res://assets/models/tank/leopard_2a7/materials/enemy_camo.tres")
+const TANK_METAL = preload("res://assets/models/tank/leopard_2a7/materials/metal.tres")
+const PROJECTILE_VISUAL_SCENES := [
+	preload("res://scenes/projectiles/apfsds.tscn"),
+	preload("res://scenes/projectiles/heat.tscn"),
+	preload("res://scenes/projectiles/he.tscn")
+]
 
 func _editor_track_state() -> Dictionary:
 	return {
@@ -34,6 +45,8 @@ func _editor_track_state() -> Dictionary:
 @onready var player_turret: Node3D = $PlayerTank/Visual/Turret
 @onready var player_turret_mesh: MeshInstance3D = $PlayerTank/Visual/Turret/TurretMesh
 @onready var player_gun: Node3D = $PlayerTank/Visual/Turret/Gun
+@onready var player_mantlet_mesh: MeshInstance3D = $PlayerTank/Visual/Turret/Gun/MantletMesh
+@onready var player_bore_evacuator: MeshInstance3D = $PlayerTank/Visual/Turret/Gun/BoreEvacuator
 @onready var player_tracks_root: Node3D = $PlayerTank/Visual/Tracks
 @onready var player_track_left: MultiMeshInstance3D = $PlayerTank/Visual/Tracks/Left
 @onready var player_track_right: MultiMeshInstance3D = $PlayerTank/Visual/Tracks/Right
@@ -52,6 +65,8 @@ func _editor_track_state() -> Dictionary:
 @onready var enemy_turret: Node3D = $EnemyTank/Visual/Turret
 @onready var enemy_turret_mesh: MeshInstance3D = $EnemyTank/Visual/Turret/TurretMesh
 @onready var enemy_gun: Node3D = $EnemyTank/Visual/Turret/Gun
+@onready var enemy_mantlet_mesh: MeshInstance3D = $EnemyTank/Visual/Turret/Gun/MantletMesh
+@onready var enemy_bore_evacuator: MeshInstance3D = $EnemyTank/Visual/Turret/Gun/BoreEvacuator
 @onready var enemy_tracks_root: Node3D = $EnemyTank/Visual/Tracks
 @onready var enemy_track_left: MultiMeshInstance3D = $EnemyTank/Visual/Tracks/Left
 @onready var enemy_track_right: MultiMeshInstance3D = $EnemyTank/Visual/Tracks/Right
@@ -86,6 +101,7 @@ var orbit_yaw_deg: float = 0.0
 var orbit_pitch_deg: float = -18.0
 var orbit_distance: float = 18.0
 var camera_kick: float = 0.0
+var gunner_camera_mount_in_gun: Vector3 = Vector3.ZERO
 var is_rmb_down: bool = false
 var mouse_sensitivity: float = DEFAULT_MOUSE_SENSITIVITY
 var camera_sensitivity: float = DEFAULT_CAMERA_SENSITIVITY
@@ -233,74 +249,64 @@ func _configure_wheel_instance(wheel_instance: MultiMeshInstance3D, radius: floa
 	multimesh.mesh = wheel_mesh
 	wheel_instance.multimesh = multimesh
 
-func _track_profile_y(x: float, points_x: Array, points_y: Array, sag: float) -> float:
-	if x <= points_x[0]:
-		return points_y[0]
-	if x >= points_x[points_x.size() - 1]:
-		return points_y[points_y.size() - 1]
-	for index in range(points_x.size() - 1):
-		if x >= points_x[index] and x <= points_x[index + 1]:
-			var span = points_x[index + 1] - points_x[index]
-			var blend = (x - points_x[index]) / span if span > 0.0001 else 0.0
-			return lerp(points_y[index], points_y[index + 1], blend) - sag * 4.0 * blend * (1.0 - blend)
-	return points_y[points_y.size() - 1]
+# --- Recorrido de la oruga -------------------------------------------------
+
+func _bottom_y(x: float, ys: Array) -> float:
+	# xs = [SPROCKET_X, ROAD_WHEEL_X..., IDLER_X] (ascendente), ys del mismo tamaño
+	var count := ROAD_WHEEL_X.size() + 2
+	var prev_x: float = SPROCKET_X
+	for i in range(1, count):
+		var next_x: float = IDLER_X if i == count - 1 else ROAD_WHEEL_X[i - 1]
+		if x <= next_x:
+			return lerpf(ys[i - 1], ys[i], inverse_lerp(prev_x, next_x, x))
+		prev_x = next_x
+	return ys[ys.size() - 1]
+
+func _track_point(d: float, total: float, bottom_ys: Array) -> Vector2:
+	var r := END_WHEEL_RADIUS + LINK_HALF_THICKNESS
+	var run := IDLER_X - SPROCKET_X
+	var arc := PI * r
+	d = fposmod(d, total)
+	if d < arc:                       # arco trasero: abajo -> arriba
+		var a := 1.5 * PI - PI * (d / arc)
+		return Vector2(SPROCKET_X + r * cos(a), END_WHEEL_Y + r * sin(a))
+	d -= arc
+	if d < run:                       # tramo superior (sobre los rodillos)
+		return Vector2(SPROCKET_X + d, END_WHEEL_Y + r)
+	d -= run
+	if d < arc:                       # arco delantero: arriba -> abajo
+		var a2 := 0.5 * PI - PI * (d / arc)
+		return Vector2(IDLER_X + r * cos(a2), END_WHEEL_Y + r * sin(a2))
+	d -= arc
+	var x := IDLER_X - d              # tramo inferior (sigue las ruedas)
+	return Vector2(x, _bottom_y(x, bottom_ys))
 
 func _update_track_side(track_instance: MultiMeshInstance3D, phase: float, compression: Array, side_sign: float) -> void:
-	var multimesh = track_instance.multimesh
-	var rear_x = SPROCKET_X
-	var front_x = IDLER_X
-	var rear_top_y = 0.38
-	var front_top_y = 0.40
-	var rear_bottom_y = -1.04
-	var front_bottom_y = -1.02
-	var rear_arc_length = PI * IDLER_RADIUS
-	var top_length = abs(front_x - rear_x)
-	var front_arc_length = PI * SPROCKET_RADIUS
-	var bottom_length = top_length
-	var total_length = rear_arc_length + top_length + front_arc_length + bottom_length
-	var link_step = total_length / float(TRACK_LINK_COUNT)
-	var top_x = [rear_x, RETURN_ROLLER_X[0], RETURN_ROLLER_X[1], RETURN_ROLLER_X[2], RETURN_ROLLER_X[3], front_x]
-	var top_y = [rear_top_y, RETURN_ROLLER_BASE_Y + 0.12 + 0.08 * compression[1], RETURN_ROLLER_BASE_Y + 0.12 + 0.08 * compression[2], RETURN_ROLLER_BASE_Y + 0.12 + 0.08 * compression[4], RETURN_ROLLER_BASE_Y + 0.12 + 0.08 * compression[5], front_top_y]
-	var bottom_x = [front_x, ROAD_WHEEL_X[6], ROAD_WHEEL_X[5], ROAD_WHEEL_X[4], ROAD_WHEEL_X[3], ROAD_WHEEL_X[2], ROAD_WHEEL_X[1], ROAD_WHEEL_X[0], rear_x]
-	var bottom_y = [front_bottom_y, ROAD_WHEEL_BASE_Y + compression[6] + 0.48, ROAD_WHEEL_BASE_Y + compression[5] + 0.48, ROAD_WHEEL_BASE_Y + compression[4] + 0.46, ROAD_WHEEL_BASE_Y + compression[3] + 0.44, ROAD_WHEEL_BASE_Y + compression[2] + 0.46, ROAD_WHEEL_BASE_Y + compression[1] + 0.48, ROAD_WHEEL_BASE_Y + compression[0] + 0.48, rear_bottom_y]
+	var multimesh := track_instance.multimesh
+	var r := END_WHEEL_RADIUS + LINK_HALF_THICKNESS
+	var total := 2.0 * ((IDLER_X - SPROCKET_X) + PI * r)
+	var step := total / float(TRACK_LINK_COUNT)
 
+	var base_y := ROAD_WHEEL_BASE_Y - ROAD_WHEEL_RADIUS - LINK_HALF_THICKNESS
+	var bottom_ys: Array = [base_y]
+	for c in compression:
+		bottom_ys.append(base_y + c)
+	bottom_ys.append(base_y)
+
+	var link_scale := Vector3(step * 1.05 / TRACK_MESH_LENGTH, 0.18, 0.36)
 	for index in range(TRACK_LINK_COUNT):
-		var distance = fmod(phase + (index + 0.5) * link_step, total_length)
-		if distance < 0.0:
-			distance += total_length
-		var local_position = Vector3(0.0, 0.0, TRACK_HALF_GAUGE * side_sign)
-		var tangent = Vector2.RIGHT
-		if distance < rear_arc_length:
-			var blend = distance / rear_arc_length
-			var angle = deg_to_rad(270.0 - 180.0 * blend)
-			local_position.x = rear_x + IDLER_RADIUS * cos(angle)
-			local_position.y = rear_bottom_y + IDLER_RADIUS + IDLER_RADIUS * sin(angle)
-			tangent = Vector2(sin(angle), -cos(angle))
-		elif distance < rear_arc_length + top_length:
-			var blend = (distance - rear_arc_length) / top_length
-			local_position.x = lerp(rear_x, front_x, blend)
-			local_position.y = _track_profile_y(local_position.x, top_x, top_y, 0.16 + 0.08 * (compression[1] + compression[2] + compression[3] + compression[4] + compression[5]) / 5.0)
-			tangent = Vector2(1.0, (top_y[3] - top_y[0]) * 0.012)
-		elif distance < rear_arc_length + top_length + front_arc_length:
-			var blend = (distance - rear_arc_length - top_length) / front_arc_length
-			var angle = deg_to_rad(90.0 - 180.0 * blend)
-			local_position.x = front_x + SPROCKET_RADIUS * cos(angle)
-			local_position.y = front_bottom_y + SPROCKET_RADIUS + SPROCKET_RADIUS * sin(angle)
-			tangent = Vector2(sin(angle), -cos(angle))
-		else:
-			var blend = (distance - rear_arc_length - top_length - front_arc_length) / bottom_length
-			local_position.x = lerp(front_x, rear_x, blend)
-			local_position.y = _track_profile_y(local_position.x, bottom_x, bottom_y, 0.12 + 0.08 * compression[3])
-			tangent = Vector2(-1.0, (bottom_y[4] - bottom_y[0]) * 0.012)
+		var d := phase + (index + 0.5) * step
+		var p := _track_point(d, total, bottom_ys)
+		var tangent := _track_point(d + 0.03, total, bottom_ys) - _track_point(d - 0.03, total, bottom_ys)
+		var link_basis := Basis(Vector3.BACK, atan2(tangent.y, tangent.x)).scaled_local(link_scale)
+		multimesh.set_instance_transform(index, Transform3D(link_basis, Vector3(p.x, p.y, TRACK_HALF_GAUGE * side_sign)))
 
-		var link_angle = atan2(tangent.y, tangent.x)
-		var link_basis = Basis(Vector3(0.0, 0.0, 1.0), link_angle).scaled(TRACK_LINK_SCALE)
-		multimesh.set_instance_transform(index, Transform3D(link_basis, local_position))
+# --- Ruedas -----------------------------------------------------------------
 
 func _update_wheels(wheel_instance: MultiMeshInstance3D, compression: Array, side_sign: float, phase: float) -> void:
 	var multimesh = wheel_instance.multimesh
 	for index in range(ROAD_WHEEL_X.size()):
-		var wheel_basis = Basis(Vector3(0.0, 0.0, 1.0), phase / 0.42) * Basis(Vector3.RIGHT, PI * 0.5)
+		var wheel_basis = Basis(Vector3(0.0, 0.0, 1.0), -phase / ROAD_WHEEL_RADIUS) * Basis(Vector3.RIGHT, PI * 0.5)
 		var wheel_position = Vector3(
 			ROAD_WHEEL_X[index],
 			ROAD_WHEEL_BASE_Y + compression[index],
@@ -309,11 +315,11 @@ func _update_wheels(wheel_instance: MultiMeshInstance3D, compression: Array, sid
 		multimesh.set_instance_transform(index, Transform3D(wheel_basis, wheel_position))
 
 func _update_role_wheel(wheel_instance: MultiMeshInstance3D, x: float, y: float, side_sign: float, phase: float, radius: float) -> void:
-	var wheel_basis = Basis(Vector3(0.0, 0.0, 1.0), phase / radius) * Basis(Vector3.RIGHT, PI * 0.5)
+	var wheel_basis = Basis(Vector3(0.0, 0.0, 1.0), -phase / radius) * Basis(Vector3.RIGHT, PI * 0.5)
 	wheel_instance.multimesh.set_instance_transform(0, Transform3D(wheel_basis, Vector3(x, y, TRACK_HALF_GAUGE * side_sign)))
 
 func _update_return_rollers(wheel_instance: MultiMeshInstance3D, side_sign: float, phase: float) -> void:
-	var wheel_basis = Basis(Vector3(0.0, 0.0, 1.0), phase / 0.24) * Basis(Vector3.RIGHT, PI * 0.5)
+	var wheel_basis = Basis(Vector3(0.0, 0.0, 1.0), -phase / 0.24) * Basis(Vector3.RIGHT, PI * 0.5)
 	for index in range(RETURN_ROLLER_X.size()):
 		var roller_position = Vector3(RETURN_ROLLER_X[index], RETURN_ROLLER_BASE_Y + 0.12, TRACK_HALF_GAUGE * side_sign)
 		wheel_instance.multimesh.set_instance_transform(index, Transform3D(wheel_basis, roller_position))
@@ -328,20 +334,31 @@ func _update_tracks(root: Node3D, left: MultiMeshInstance3D, right: MultiMeshIns
 	_update_track_side(right, right_phase, right_compression, 1.0)
 	_update_wheels(wheels_left, left_compression, -1.0, left_phase)
 	_update_wheels(wheels_right, right_compression, 1.0, right_phase)
-	_update_role_wheel(sprocket_left, SPROCKET_X, ROAD_WHEEL_BASE_Y + 0.42, -1.0, left_phase, SPROCKET_RADIUS)
-	_update_role_wheel(sprocket_right, SPROCKET_X, ROAD_WHEEL_BASE_Y + 0.42, 1.0, right_phase, SPROCKET_RADIUS)
-	_update_role_wheel(idler_left, IDLER_X, ROAD_WHEEL_BASE_Y + 0.42, -1.0, left_phase, IDLER_RADIUS)
-	_update_role_wheel(idler_right, IDLER_X, ROAD_WHEEL_BASE_Y + 0.42, 1.0, right_phase, IDLER_RADIUS)
+	_update_role_wheel(sprocket_left, SPROCKET_X, END_WHEEL_Y, -1.0, left_phase, SPROCKET_RADIUS)
+	_update_role_wheel(sprocket_right, SPROCKET_X, END_WHEEL_Y, 1.0, right_phase, SPROCKET_RADIUS)
+	_update_role_wheel(idler_left, IDLER_X, END_WHEEL_Y, -1.0, left_phase, IDLER_RADIUS)
+	_update_role_wheel(idler_right, IDLER_X, END_WHEEL_Y, 1.0, right_phase, IDLER_RADIUS)
 	_update_return_rollers(return_left, -1.0, left_phase)
 	_update_return_rollers(return_right, 1.0, right_phase)
+
+func _player_track_state_from_suspension() -> Dictionary:
+	var state: Dictionary = get_player_track_state()
+	var left_compression: Array = []
+	var right_compression: Array = []
+	for index in range(ROAD_WHEEL_X.size()):
+		left_compression.append(player_chassis.get_wheel_compression(index))
+		right_compression.append(player_chassis.get_wheel_compression(index + ROAD_WHEEL_X.size()))
+	state["left_compression"] = left_compression
+	state["right_compression"] = right_compression
+	return state
 
 func _ready() -> void:
 	set_process_input(true)
 	if Engine.is_editor_hint():
 		_configure_track_instance(player_track_left)
 		_configure_track_instance(player_track_right)
-		_configure_wheel_instance(player_wheels_left, 0.42, 0.18, ROAD_WHEEL_X.size())
-		_configure_wheel_instance(player_wheels_right, 0.42, 0.18, ROAD_WHEEL_X.size())
+		_configure_wheel_instance(player_wheels_left, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
+		_configure_wheel_instance(player_wheels_right, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
 		_configure_wheel_instance(player_sprocket_left, SPROCKET_RADIUS, 0.22, 1)
 		_configure_wheel_instance(player_sprocket_right, SPROCKET_RADIUS, 0.22, 1)
 		_configure_wheel_instance(player_idler_left, IDLER_RADIUS, 0.20, 1)
@@ -350,8 +367,8 @@ func _ready() -> void:
 		_configure_wheel_instance(player_return_right, 0.24, 0.12, RETURN_ROLLER_X.size())
 		_configure_track_instance(enemy_track_left)
 		_configure_track_instance(enemy_track_right)
-		_configure_wheel_instance(enemy_wheels_left, 0.42, 0.18, ROAD_WHEEL_X.size())
-		_configure_wheel_instance(enemy_wheels_right, 0.42, 0.18, ROAD_WHEEL_X.size())
+		_configure_wheel_instance(enemy_wheels_left, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
+		_configure_wheel_instance(enemy_wheels_right, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
 		_configure_wheel_instance(enemy_sprocket_left, SPROCKET_RADIUS, 0.22, 1)
 		_configure_wheel_instance(enemy_sprocket_right, SPROCKET_RADIUS, 0.22, 1)
 		_configure_wheel_instance(enemy_idler_left, IDLER_RADIUS, 0.20, 1)
@@ -363,12 +380,32 @@ func _ready() -> void:
 		return
 	_load_settings()
 	player_chassis.rotation = Vector3.ZERO
-	player_chassis.global_position = get_player_position() + Vector3(0.0, 0.75, 0.0)
+	# La caja del chasis queda a ~0.2 m del suelo; los rayos alcanzan la altura de reposo.
+	player_chassis.global_position = get_player_position() + Vector3(0.0, -0.35, 0.0)
+	# La posición puesta en el editor se interpreta relativa al casco. Convertirla
+	# a coordenadas del pivote del cañón para que siga el giro y la elevación.
+	player_turret.position = Vector3(0.0, 0.8, 0.0)
+	player_turret.rotation = Vector3.ZERO
+	player_gun.rotation = Vector3.ZERO
+	var bore_evacuator_offset := float(get_bore_evacuator_offset_m())
+	player_bore_evacuator.position.x = bore_evacuator_offset
+	enemy_bore_evacuator.position.x = bore_evacuator_offset
+	var camera_mount_hull_local := gunner_cam.position
+	var camera_mount_world := player_chassis.to_global(camera_mount_hull_local)
+	gunner_camera_mount_in_gun = player_gun.to_local(camera_mount_world)
+	for visual in player_tank.find_children("*", "VisualInstance3D", true, false):
+		visual.layers = PLAYER_TANK_RENDER_LAYER
+	chase_cam.cull_mask = 1 | PLAYER_TANK_RENDER_LAYER
+	gunner_cam.cull_mask = 1
 	terrain_mesh.create_trimesh_collision()
 	player_hull_mesh.material_override = PLAYER_CAMO
 	player_turret_mesh.material_override = PLAYER_CAMO
+	player_mantlet_mesh.material_override = PLAYER_CAMO
+	player_bore_evacuator.material_override = TANK_METAL
 	enemy_hull_mesh.material_override = ENEMY_CAMO
 	enemy_turret_mesh.material_override = ENEMY_CAMO
+	enemy_mantlet_mesh.material_override = ENEMY_CAMO
+	enemy_bore_evacuator.material_override = TANK_METAL
 	pause_menu.visible = false
 	sensitivity_slider.value = mouse_sensitivity
 	camera_sensitivity_slider.value = camera_sensitivity
@@ -380,8 +417,8 @@ func _ready() -> void:
 	_update_camera_sensitivity_label()
 	_configure_track_instance(player_track_left)
 	_configure_track_instance(player_track_right)
-	_configure_wheel_instance(player_wheels_left, 0.42, 0.18, ROAD_WHEEL_X.size())
-	_configure_wheel_instance(player_wheels_right, 0.42, 0.18, ROAD_WHEEL_X.size())
+	_configure_wheel_instance(player_wheels_left, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
+	_configure_wheel_instance(player_wheels_right, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
 	_configure_wheel_instance(player_sprocket_left, SPROCKET_RADIUS, 0.22, 1)
 	_configure_wheel_instance(player_sprocket_right, SPROCKET_RADIUS, 0.22, 1)
 	_configure_wheel_instance(player_idler_left, IDLER_RADIUS, 0.20, 1)
@@ -390,8 +427,8 @@ func _ready() -> void:
 	_configure_wheel_instance(player_return_right, 0.24, 0.12, RETURN_ROLLER_X.size())
 	_configure_track_instance(enemy_track_left)
 	_configure_track_instance(enemy_track_right)
-	_configure_wheel_instance(enemy_wheels_left, 0.42, 0.18, ROAD_WHEEL_X.size())
-	_configure_wheel_instance(enemy_wheels_right, 0.42, 0.18, ROAD_WHEEL_X.size())
+	_configure_wheel_instance(enemy_wheels_left, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
+	_configure_wheel_instance(enemy_wheels_right, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
 	_configure_wheel_instance(enemy_sprocket_left, SPROCKET_RADIUS, 0.22, 1)
 	_configure_wheel_instance(enemy_sprocket_right, SPROCKET_RADIUS, 0.22, 1)
 	_configure_wheel_instance(enemy_idler_left, IDLER_RADIUS, 0.20, 1)
@@ -428,8 +465,9 @@ func _input(event: InputEvent) -> void:
 			orbit_distance = clamp(orbit_distance + 1.2, 8.0, 32.0)
 		elif event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 			var shot = fire_player_shot()
-			if shot.get("success", false):
+			if shot.get("fired", false):
 				camera_kick = 1.0
+				_show_projectile(shot)
 
 	elif event is InputEventKey and event.pressed:
 		if event.keycode == KEY_ESCAPE:
@@ -444,8 +482,9 @@ func _input(event: InputEvent) -> void:
 				gunner_cam.current = false
 		elif event.keycode == KEY_SPACE:
 			var shot = fire_player_shot()
-			if shot.get("success", false):
+			if shot.get("fired", false):
 				camera_kick = 1.0
+				_show_projectile(shot)
 		elif event.keycode == KEY_1:
 			select_ammo(0)
 		elif event.keycode == KEY_2:
@@ -455,6 +494,15 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_R:
 			reset_game()
 			camera_kick = 0.0
+
+func _show_projectile(shot: Dictionary) -> void:
+	var trajectory: Array = shot.get("trajectory", [])
+	if trajectory.size() < 2:
+		return
+	var ammo_type := clampi(int(shot.get("ammo_type", 0)), 0, PROJECTILE_VISUAL_SCENES.size() - 1)
+	var projectile = PROJECTILE_VISUAL_SCENES[ammo_type].instantiate()
+	add_child(projectile)
+	projectile.configure(trajectory, float(shot.get("flight_time_s", 0.1)))
 
 func _process(delta: float) -> void:
 	if pause_menu and pause_menu.visible:
@@ -497,24 +545,30 @@ func _physics_process(delta: float) -> void:
 	if pause_menu and pause_menu.visible:
 		return
 
-	sync_player_chassis_state(player_chassis.global_position, -rad_to_deg(player_chassis.rotation.y))
+	var player_forward := player_chassis.global_transform.basis.x
+	var player_forward_speed := player_chassis.linear_velocity.dot(player_forward)
+	var player_heading := rad_to_deg(atan2(player_forward.z, player_forward.x))
+	var player_pitch := rad_to_deg(atan2(player_forward.y, Vector2(player_forward.x, player_forward.z).length()))
+	sync_player_chassis_state(player_chassis.global_position, player_heading, player_forward_speed, player_pitch, delta)
 	player_chassis.simulate_physics_step(delta)
 	advance_simulation_from_godot(delta)
 
 	# 1. Update Player Tank Visuals
+	# El Visual del jugador es hijo del RigidBody, que ya se inclina/gira:
+	# casco y orugas no llevan rotación propia, y la torreta es relativa al casco.
 	var p_pos = get_player_position()
 
-	var p_hdg_rad = deg_to_rad(-get_player_heading())
-	var p_pr = get_player_pitch_roll()
-	player_hull.rotation = Vector3(deg_to_rad(-p_pr.x), p_hdg_rad, deg_to_rad(p_pr.y))
-	_update_tracks(player_tracks_root, player_track_left, player_track_right, player_wheels_left, player_wheels_right, player_sprocket_left, player_sprocket_right, player_idler_left, player_idler_right, player_return_left, player_return_right, get_player_track_state(), player_hull.rotation)
+	player_hull.rotation = Vector3.ZERO
+	_update_tracks(player_tracks_root, player_track_left, player_track_right, player_wheels_left, player_wheels_right, player_sprocket_left, player_sprocket_right, player_idler_left, player_idler_right, player_return_left, player_return_right, _player_track_state_from_suspension(), Vector3.ZERO)
 
-	var p_turret_abs = deg_to_rad(-get_player_absolute_turret_azimuth())
+	var p_turret_rel = deg_to_rad(-get_player_turret_azimuth())
 	player_turret.position = Vector3(0.0, 0.8, 0.0)
-	player_turret.rotation = Vector3(0.0, p_turret_abs, 0.0)
+	player_turret.rotation = Vector3(0.0, p_turret_rel, 0.0)
 
 	var p_gun_el = deg_to_rad(get_player_gun_elevation())
 	player_gun.rotation = Vector3(0.0, 0.0, p_gun_el)
+	var bore_direction := player_gun.global_transform.basis.x.normalized()
+	sync_player_gun_bore(player_gun.global_position, bore_direction)
 
 	# 2. Update Enemy Tank Visuals
 	var t_alive = get_target_alive()
@@ -538,9 +592,10 @@ func _physics_process(delta: float) -> void:
 	# 3. Update Camera Systems
 	if is_gunner_sight_active():
 		# --- Gunner View Optics ---
-		var eye_pos = get_gunner_eye_pos()
-		gunner_cam.global_position = gunner_cam.global_position.lerp(eye_pos, 0.35)
-		gunner_cam.look_at(get_desired_boresight_target_point(), Vector3.UP)
+		var gun_direction := player_gun.global_transform.basis.x
+		var eye_pos := player_gun.to_global(gunner_camera_mount_in_gun)
+		gunner_cam.global_position = eye_pos
+		gunner_cam.look_at(eye_pos + gun_direction * 260.0, player_chassis.global_transform.basis.y)
 		gunner_cam.fov = lerp(gunner_cam.fov, 20.0 + camera_kick * 3.0, 0.15)
 	else:
 		# --- Chase Camera ---
@@ -567,7 +622,8 @@ func _physics_process(delta: float) -> void:
 
 		var camera_anchor = p_pos + Vector3(0.0, 1.1, 0.0)
 		var camera_query = PhysicsRayQueryParameters3D.create(camera_anchor, desired_cam_pos)
-		camera_query.exclude = [self]
+		camera_query.exclude = [player_chassis.get_rid()]
+		camera_query.collision_mask = 1  # solo terreno, nunca el propio tanque
 		var camera_hit = get_world_3d().direct_space_state.intersect_ray(camera_query)
 		if not camera_hit.is_empty():
 			desired_cam_pos = camera_hit.position + camera_hit.normal * 0.35
@@ -610,7 +666,7 @@ func _physics_process(delta: float) -> void:
 	text += "Ammo: %s (x%d) | Reload: %s | Player HP: %.0f/100 | Target HP: %.0f/100\n" % [
 		ammo, count, "READY" if rld <= 0.0 else "%.1fs" % rld, php, thp
 	]
-	text += "Aim P: %.1f° / %.1f° | Aim T: %.1f° / %.1f°\n" % [
+	text += "Player turret/gun: %.1f° / %.1f° | Enemy turret/gun: %.1f° / %.1f°\n" % [
 		player_turret_azimuth, player_gun_elevation, target_turret_azimuth, target_gun_elevation
 	]
 	text += "Desired: %.1f° / %.1f° | Sim: %.1fs\n" % [

@@ -1,15 +1,17 @@
-[gd_scene load_steps=13 format=3 uid="uid://dpx8y71leopard"]
+[gd_scene format=3 uid="uid://b00vjc0tqm01f"]
 
-[ext_resource type="Script" path="res://scenes/main.gd" id="1_maingd"]
-[ext_resource type="ArrayMesh" path="res://assets/models/hull.obj" id="2_hull"]
-[ext_resource type="ArrayMesh" path="res://assets/models/turret.obj" id="3_turret"]
-[ext_resource type="ArrayMesh" path="res://assets/models/generated/barrel.obj" id="4_barrel"]
-[ext_resource type="ArrayMesh" path="res://assets/models/generated/terrain.obj" id="5_terrain"]
+[ext_resource type="Script" uid="uid://dlaggtbsxyj1k" path="res://scenes/main.gd" id="1_maingd"]
+[ext_resource type="ArrayMesh" uid="uid://ct2s8w0wu1phk" path="res://assets/models/hull.obj" id="2_hull"]
+[ext_resource type="ArrayMesh" uid="uid://cien2x8c57v1q" path="res://assets/models/turret.obj" id="3_turret"]
+[ext_resource type="ArrayMesh" uid="uid://b510k1pey81h2" path="res://assets/models/generated/barrel.obj" id="4_barrel"]
+[ext_resource type="ArrayMesh" uid="uid://da2m0guo1a407" path="res://assets/models/generated/terrain.obj" id="5_terrain"]
 [ext_resource type="Material" path="res://assets/textures/player_camo.tres" id="6_playercamo"]
 [ext_resource type="Material" path="res://assets/textures/enemy_camo.tres" id="7_enemycamo"]
+[ext_resource type="ArrayMesh" uid="uid://gign5apu3g60" path="res://assets/models/generated/track.obj" id="11_track"]
 [ext_resource type="Material" path="res://assets/textures/terrain.tres" id="8_terrainmat"]
 [ext_resource type="Material" path="res://assets/textures/metal.tres" id="9_metalmat"]
-[ext_resource type="Script" path="res://scenes/sight_overlay.gd" id="10_sight"]
+[ext_resource type="Script" uid="uid://d1t3lvwb0xdlh" path="res://scenes/sight_overlay.gd" id="10_sight"]
+[ext_resource type="PackedScene" path="res://scenes/tank_visual.tscn" id="12_tank_visual"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -23,106 +25,162 @@ top_radius = 20.0
 bottom_radius = 20.0
 height = 0.5
 
-[node name="Main" type="TankGame"]
+[sub_resource type="BoxShape3D" id="BoxShape3D_tank"]
+size = Vector3(6.4, 1.8, 3.2)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_track"]
+size = Vector3(5.9, 0.28, 0.72)
+
+[node name="Main" type="TankGame" unique_id=38195964]
 script = ExtResource("1_maingd")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=931367854]
 environment = SubResource("Environment_main")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=213626341]
 transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 0, 100, 0)
 shadow_enabled = true
 
-[node name="TerrainMesh" type="MeshInstance3D" parent="."]
+[node name="TerrainMesh" type="MeshInstance3D" parent="." unique_id=1674668666]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1200, 0, -1200)
 mesh = ExtResource("5_terrain")
 surface_material_override/0 = ExtResource("8_terrainmat")
 
-[node name="Depot" type="Node3D" parent="."]
+[node name="Depot" type="Node3D" parent="." unique_id=1126361798]
 
-[node name="DepotMesh" type="MeshInstance3D" parent="Depot"]
-mesh = SubResource("CylinderMesh_depot")
+[node name="PlayerTank" type="TankChassis" parent="." unique_id=1043444151]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 7.2674704)
+mass = 67000.0
+linear_damp = 0.35
+angular_damp = 1.2
+can_sleep = false
 
-[node name="PlayerTank" type="Node3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="PlayerTank"]
+shape = SubResource("BoxShape3D_tank")
 
-[node name="Hull" type="Node3D" parent="PlayerTank"]
+[node name="LeftTrackCollision" type="CollisionShape3D" parent="PlayerTank"]
+position = Vector3(0, -0.84, -1.95)
+shape = SubResource("BoxShape3D_track")
 
-[node name="HullMesh" type="MeshInstance3D" parent="PlayerTank/Hull"]
-mesh = ExtResource("2_hull")
-surface_material_override/0 = ExtResource("6_playercamo")
+[node name="RightTrackCollision" type="CollisionShape3D" parent="PlayerTank"]
+position = Vector3(0, -0.84, 1.95)
+shape = SubResource("BoxShape3D_track")
 
-[node name="Turret" type="Node3D" parent="PlayerTank"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+[node name="Suspension" type="Node3D" parent="PlayerTank"]
 
-[node name="TurretMesh" type="MeshInstance3D" parent="PlayerTank/Turret"]
-mesh = ExtResource("3_turret")
-surface_material_override/0 = ExtResource("6_playercamo")
+[node name="Left" type="Node3D" parent="PlayerTank/Suspension"]
 
-[node name="Gun" type="Node3D" parent="PlayerTank/Turret"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.6, 0.35, 0)
+[node name="0" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
+position = Vector3(-2.4, 0.25, -1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
 
-[node name="BarrelMesh" type="MeshInstance3D" parent="PlayerTank/Turret/Gun"]
-transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
-mesh = ExtResource("4_barrel")
-surface_material_override/0 = ExtResource("9_metalmat")
+[node name="1" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
+position = Vector3(-1.6, 0.25, -1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
 
-[node name="EnemyTank" type="Node3D" parent="."]
+[node name="2" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
+position = Vector3(-0.8, 0.25, -1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
 
-[node name="Hull" type="Node3D" parent="EnemyTank"]
+[node name="3" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
+position = Vector3(0, 0.25, -1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
 
-[node name="HullMesh" type="MeshInstance3D" parent="EnemyTank/Hull"]
-mesh = ExtResource("2_hull")
-surface_material_override/0 = ExtResource("7_enemycamo")
+[node name="4" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
+position = Vector3(0.8, 0.25, -1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
 
-[node name="Turret" type="Node3D" parent="EnemyTank"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+[node name="5" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
+position = Vector3(1.6, 0.25, -1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
 
-[node name="TurretMesh" type="MeshInstance3D" parent="EnemyTank/Turret"]
-mesh = ExtResource("3_turret")
-surface_material_override/0 = ExtResource("7_enemycamo")
+[node name="6" type="RayCast3D" parent="PlayerTank/Suspension/Left"]
+position = Vector3(2.4, 0.25, -1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
 
-[node name="Gun" type="Node3D" parent="EnemyTank/Turret"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.6, 0.35, 0)
+[node name="Right" type="Node3D" parent="PlayerTank/Suspension"]
 
-[node name="BarrelMesh" type="MeshInstance3D" parent="EnemyTank/Turret/Gun"]
-transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
-mesh = ExtResource("4_barrel")
-surface_material_override/0 = ExtResource("9_metalmat")
+[node name="0" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
+position = Vector3(-2.4, 0.25, 1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
 
-[node name="ChaseCamera" type="Camera3D" parent="."]
+[node name="1" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
+position = Vector3(-1.6, 0.25, 1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
+
+[node name="2" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
+position = Vector3(-0.8, 0.25, 1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
+
+[node name="3" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
+position = Vector3(0, 0.25, 1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
+
+[node name="4" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
+position = Vector3(0.8, 0.25, 1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
+
+[node name="5" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
+position = Vector3(1.6, 0.25, 1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
+
+[node name="6" type="RayCast3D" parent="PlayerTank/Suspension/Right"]
+position = Vector3(2.4, 0.25, 1.95)
+target_position = Vector3(0, -1.55, 0)
+enabled = true
+
+[node name="Visual" parent="PlayerTank" instance=ExtResource("12_tank_visual")]
+
+[node name="EnemyTank" type="Node3D" parent="." unique_id=1279204780]
+[node name="Visual" parent="EnemyTank" instance=ExtResource("12_tank_visual")]
+
+[node name="ChaseCamera" type="Camera3D" parent="." unique_id=1294951956]
 current = true
 fov = 55.0
 
-[node name="GunnerCamera" type="Camera3D" parent="."]
+[node name="GunnerCamera" type="Camera3D" parent="." unique_id=1471411728]
 fov = 20.0
 
-[node name="HUD" type="CanvasLayer" parent="."]
+[node name="HUD" type="CanvasLayer" parent="." unique_id=1200872147]
 
-[node name="HUDPanel" type="PanelContainer" parent="HUD"]
+[node name="HUDPanel" type="PanelContainer" parent="HUD" unique_id=12840529]
 offset_left = 16.0
 offset_top = 16.0
 offset_right = 680.0
 offset_bottom = 220.0
 
-[node name="Margin" type="MarginContainer" parent="HUD/HUDPanel"]
+[node name="Margin" type="MarginContainer" parent="HUD/HUDPanel" unique_id=83685406]
 layout_mode = 2
 theme_override_constants/margin_left = 12
 theme_override_constants/margin_top = 12
 theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 12
 
-[node name="VBox" type="VBoxContainer" parent="HUD/HUDPanel/Margin"]
+[node name="VBox" type="VBoxContainer" parent="HUD/HUDPanel/Margin" unique_id=997526695]
 layout_mode = 2
 
-[node name="InfoLabel" type="Label" parent="HUD/HUDPanel/Margin/VBox"]
+[node name="InfoLabel" type="Label" parent="HUD/HUDPanel/Margin/VBox" unique_id=1465744449]
 layout_mode = 2
 text = "Leopard 2A7 Simulator (Godot + Rust)"
 
-[node name="CombatLabel" type="Label" parent="HUD/HUDPanel/Margin/VBox"]
+[node name="CombatLabel" type="Label" parent="HUD/HUDPanel/Margin/VBox" unique_id=634714917]
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.8, 0.2, 1)
 
-[node name="SightOverlay" type="Control" parent="HUD"]
+[node name="SightOverlay" type="Control" parent="HUD" unique_id=1464264333]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -131,3 +189,71 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("10_sight")
+
+[node name="PauseMenu" type="PanelContainer" parent="HUD"]
+visible = true
+offset_left = -210.0
+offset_top = -220.0
+offset_right = 210.0
+offset_bottom = 220.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+
+[node name="Margin" type="MarginContainer" parent="HUD/PauseMenu"]
+layout_mode = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 20
+
+[node name="VBox" type="VBoxContainer" parent="HUD/PauseMenu/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="HUD/PauseMenu/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+text = "PAUSED"
+
+[node name="SensitivityDescription" type="Label" parent="HUD/PauseMenu/Margin/VBox"]
+layout_mode = 2
+text = "Mouse sensitivity (CS2 style, m_yaw 0.022)"
+
+[node name="SensitivitySlider" type="HSlider" parent="HUD/PauseMenu/Margin/VBox"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+min_value = 0.1
+max_value = 10.0
+step = 0.1
+value = 3.2
+
+[node name="SensitivityValue" type="Label" parent="HUD/PauseMenu/Margin/VBox"]
+layout_mode = 2
+
+[node name="CameraSensitivityDescription" type="Label" parent="HUD/PauseMenu/Margin/VBox"]
+layout_mode = 2
+text = "Free-look sensitivity"
+
+[node name="CameraSensitivitySlider" type="HSlider" parent="HUD/PauseMenu/Margin/VBox"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+min_value = 0.1
+max_value = 3.0
+step = 0.1
+value = 1.0
+
+[node name="CameraSensitivityValue" type="Label" parent="HUD/PauseMenu/Margin/VBox"]
+layout_mode = 2
+
+[node name="InvertMouse" type="CheckButton" parent="HUD/PauseMenu/Margin/VBox"]
+layout_mode = 2
+text = "Invert vertical mouse"
+
+[node name="ResumeButton" type="Button" parent="HUD/PauseMenu/Margin/VBox"]
+layout_mode = 2
+text = "Resume"
+
+[node name="QuitButton" type="Button" parent="HUD/PauseMenu/Margin/VBox"]
+layout_mode = 2
+text = "Exit"

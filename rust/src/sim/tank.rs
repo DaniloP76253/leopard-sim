@@ -46,7 +46,7 @@ pub struct Tank {
     pub right_track_speed_ms: f64,
     pub left_track_phase_m: f64,
     pub right_track_phase_m: f64,
-    pub road_wheel_compression_m: [[f64; 5]; 2],
+    pub road_wheel_compression_m: [[f64; 7]; 2],
 
     pub current_ammo: AmmoTypeId,
     pub ammo_count: [i32; AMMO_TYPE_COUNT],
@@ -102,7 +102,7 @@ impl Tank {
             right_track_speed_ms: 0.0,
             left_track_phase_m: 0.0,
             right_track_phase_m: 0.0,
-            road_wheel_compression_m: [[0.0; 5]; 2],
+            road_wheel_compression_m: [[0.0; 7]; 2],
 
             current_ammo: AmmoTypeId::Apfsds,
             ammo_count: [20, 10, 12],
@@ -166,7 +166,7 @@ impl Tank {
             right_track_speed_ms: 0.0,
             left_track_phase_m: 0.0,
             right_track_phase_m: 0.0,
-            road_wheel_compression_m: [[0.0; 5]; 2],
+            road_wheel_compression_m: [[0.0; 7]; 2],
 
             current_ammo: AmmoTypeId::Apfsds,
             ammo_count: [20, 8, 8],

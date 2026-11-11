@@ -1,0 +1,59 @@
+[gd_scene format=3]
+
+[ext_resource type="ArrayMesh" uid="uid://ct2s8w0wu1phk" path="res://assets/models/hull.obj" id="1_hull"]
+[ext_resource type="ArrayMesh" uid="uid://cien2x8c57v1q" path="res://assets/models/turret.obj" id="2_turret"]
+[ext_resource type="ArrayMesh" uid="uid://b510k1pey81h2" path="res://assets/models/generated/barrel.obj" id="3_barrel"]
+[ext_resource type="Material" path="res://assets/textures/metal.tres" id="4_metal"]
+
+[node name="TankVisual" type="Node3D"]
+
+[node name="Hull" type="Node3D" parent="."]
+
+[node name="HullMesh" type="MeshInstance3D" parent="Hull"]
+mesh = ExtResource("1_hull")
+
+[node name="Tracks" type="Node3D" parent="."]
+
+[node name="Left" type="MultiMeshInstance3D" parent="Tracks"]
+material_override = ExtResource("4_metal")
+
+[node name="Right" type="MultiMeshInstance3D" parent="Tracks"]
+material_override = ExtResource("4_metal")
+
+[node name="WheelsLeft" type="MultiMeshInstance3D" parent="Tracks"]
+material_override = ExtResource("4_metal")
+
+[node name="WheelsRight" type="MultiMeshInstance3D" parent="Tracks"]
+material_override = ExtResource("4_metal")
+
+[node name="SprocketLeft" type="MultiMeshInstance3D" parent="Tracks"]
+material_override = ExtResource("4_metal")
+
+[node name="SprocketRight" type="MultiMeshInstance3D" parent="Tracks"]
+material_override = ExtResource("4_metal")
+
+[node name="IdlerLeft" type="MultiMeshInstance3D" parent="Tracks"]
+material_override = ExtResource("4_metal")
+
+[node name="IdlerRight" type="MultiMeshInstance3D" parent="Tracks"]
+material_override = ExtResource("4_metal")
+
+[node name="ReturnLeft" type="MultiMeshInstance3D" parent="Tracks"]
+material_override = ExtResource("4_metal")
+
+[node name="ReturnRight" type="MultiMeshInstance3D" parent="Tracks"]
+material_override = ExtResource("4_metal")
+
+[node name="Turret" type="Node3D" parent="."]
+position = Vector3(0, 0.8, 0)
+
+[node name="TurretMesh" type="MeshInstance3D" parent="Turret"]
+mesh = ExtResource("2_turret")
+
+[node name="Gun" type="Node3D" parent="Turret"]
+position = Vector3(1.6, 0.35, 0)
+
+[node name="BarrelMesh" type="MeshInstance3D" parent="Turret/Gun"]
+transform = Transform3D(4.371139e-08, 1, -8.742278e-08, 1, -4.371139e-08, 0, -3.821371e-15, -8.742278e-08, -1, 0, 0, 0)
+mesh = ExtResource("3_barrel")
+material_override = ExtResource("4_metal")

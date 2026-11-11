@@ -3,8 +3,13 @@ use super::terrain::{terrain_height_at, terrain_line_blocked};
 use super::vecmath::{clampd, deg2rad, norm_deg, rad2deg, Vec2, Vec3};
 
 pub const PLAYER_HEIGHT: f32 = 1.45;
-pub const TURRET_MOUSE_SENS_DEG_PER_PX: f64 = 0.07;
-pub const ELEVATION_MOUSE_SENS_DEG_PER_PX: f64 = 0.05;
+pub const ROAD_WHEEL_X: [f64; 7] = [-2.4, -1.6, -0.8, 0.0, 0.8, 1.6, 2.4];
+pub const ROAD_WHEEL_RADIUS: f64 = 0.42;
+pub const ROAD_WHEEL_BASE_Y: f64 = -0.62;
+pub const TRACK_HALF_GAUGE: f64 = 1.95;
+pub const CS2_M_YAW: f64 = 0.022;
+pub const TURRET_MOUSE_SENS_DEG_PER_PX: f64 = CS2_M_YAW;
+pub const ELEVATION_MOUSE_SENS_DEG_PER_PX: f64 = CS2_M_YAW;
 
 pub fn lerpf(from: f32, to: f32, t: f32) -> f32 {
     from + (to - from) * t
@@ -37,6 +42,28 @@ pub fn update_chassis_pose(t: &mut Tank) {
         ((center - center.floor()) * 0.15) as f32,
         0.08,
     ) as f64;
+
+    let hull_visual_y = terrain_visual_height_at(t.position_m) as f64
+        + PLAYER_HEIGHT as f64
+        + t.hull_bounce_m;
+    for (side_index, side_sign) in [-1.0, 1.0].iter().enumerate() {
+        let side_offset = right.scale(TRACK_HALF_GAUGE * side_sign);
+        for (wheel_index, wheel_x) in ROAD_WHEEL_X.iter().enumerate() {
+            let wheel_position = t.position_m.add(
+                forward
+                    .scale(*wheel_x)
+                    .add(side_offset),
+            );
+            let ground_y = terrain_visual_height_at(wheel_position) as f64;
+            let desired_wheel_y = ground_y + ROAD_WHEEL_RADIUS;
+            let compression = clampd(
+                desired_wheel_y - (hull_visual_y + ROAD_WHEEL_BASE_Y),
+                0.0,
+                0.55,
+            );
+            t.road_wheel_compression_m[side_index][wheel_index] = compression;
+        }
+    }
 }
 
 pub fn turret_has_line_of_sight(shooter: &Tank, target: &Tank) -> bool {

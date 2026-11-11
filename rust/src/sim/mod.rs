@@ -11,9 +11,11 @@ pub mod vecmath;
 
 #[cfg(test)]
 mod tests {
+    use super::ai::*;
     use super::ammo::*;
     use super::armor::*;
     use super::combat::*;
+    use super::render_helpers::*;
     use super::tank::*;
     use super::vecmath::*;
 
@@ -62,6 +64,41 @@ mod tests {
         tank.update_movement(1.0, 0.0, 1.0, 0.5);
         assert!(tank.speed_ms > 0.0);
         assert!(tank.position_m.x > 0.0);
+    }
+
+    #[test]
+    fn test_player_turret_input_changes_angles() {
+        let mut tank = Tank::new_leopard2a7("TestPlayer", Vec2::new(0.0, 0.0), 0.0);
+        let (turret_input, elevation_input) = turret_input_toward(&tank, 90.0, 10.0, 0.1);
+
+        tank.update_turret(turret_input, elevation_input, 0.1);
+
+        assert!(tank.turret_azimuth_deg > 0.0);
+        assert!(tank.gun_elevation_deg > 0.0);
+    }
+
+    #[test]
+    fn test_tracks_animate_with_differential_motion() {
+        let mut tank = Tank::new_leopard2a7("TestPlayer", Vec2::new(0.0, 0.0), 0.0);
+
+        tank.update_movement(1.0, 1.0, 1.0, 0.5);
+
+        assert!(tank.right_track_phase_m > tank.left_track_phase_m);
+        assert!(tank.left_track_speed_ms < tank.right_track_speed_ms);
+        assert!(tank.left_track_phase_m.abs() > 0.0 || tank.right_track_phase_m.abs() > 0.0);
+    }
+
+    #[test]
+    fn test_ai_turret_input_changes_angles() {
+        let mut ai_state = AiState::new(350.0);
+        let mut bot = Tank::new_generic_mbt("Bot", Vec2::new(0.0, 0.0), 0.0);
+        let player = Tank::new_leopard2a7("Player", Vec2::new(0.0, 100.0), 0.0);
+        let command = ai_compute_command(&mut ai_state, &bot, &player, 0.1);
+
+        bot.update_turret(command.turret_input, command.elevation_input, 0.1);
+
+        assert!(bot.turret_azimuth_deg > 0.0);
+        assert!(bot.gun_elevation_deg >= 0.0);
     }
 
     #[test]

@@ -12,7 +12,7 @@ use crate::sim::render_helpers::{
 };
 use crate::sim::tank::Tank;
 use crate::sim::terrain::terrain_grip_at;
-use crate::sim::vecmath::{clampd, norm_deg, Vec2};
+use crate::sim::vecmath::{clampd, deg2rad, norm_deg, Vec2};
 
 const SIM_DT_MAX: f64 = 0.05;
 const AI_PREFERRED_RANGE_M: f64 = 350.0;
@@ -79,7 +79,13 @@ impl INode3D for TankGame {
         }
     }
 
-    fn physics_process(&mut self, mut delta: f64) {
+    fn physics_process(&mut self, delta: f64) {
+        self.advance_simulation(delta);
+    }
+}
+
+impl TankGame {
+    fn advance_simulation(&mut self, mut delta: f64) {
         if delta > SIM_DT_MAX {
             delta = SIM_DT_MAX;
         }
@@ -151,6 +157,11 @@ impl TankGame {
     fn shot_result(outcome: i32, impact_x: f32, impact_y: f32, impact_z: f32, message: GString);
 
     #[func]
+    pub fn advance_simulation_from_godot(&mut self, delta: f64) {
+        self.advance_simulation(delta);
+    }
+
+    #[func]
     pub fn reset_game(&mut self) {
         self.player = Tank::new_leopard2a7("Player", Vec2::new(0.0, 0.0), 0.0);
         self.target = Tank::new_generic_mbt("Target", Vec2::new(700.0, 150.0), 200.0);
@@ -168,21 +179,14 @@ impl TankGame {
     #[func]
     pub fn apply_player_input(
         &mut self,
-        throttle: f64,
-        steer: f64,
+        _throttle: f64,
+        _steer: f64,
         mouse_dx: f64,
         mouse_dy: f64,
         trim_turret: f64,
         trim_elev: f64,
         dt: f64,
     ) {
-        self.player.update_movement(
-            throttle,
-            steer,
-            terrain_grip_at(self.player.position_m),
-            dt,
-        );
-
         self.desired_turret_azimuth_deg = norm_deg(
             self.desired_turret_azimuth_deg
                 + mouse_dx * TURRET_MOUSE_SENS_DEG_PER_PX
@@ -196,6 +200,12 @@ impl TankGame {
             self.player.gun_elevation_min_deg,
             self.player.gun_elevation_max_deg,
         );
+    }
+
+    #[func]
+    pub fn sync_player_chassis_state(&mut self, position: Vector3, heading_deg: f64) {
+        self.player.position_m = Vec2::new(position.x as f64, position.z as f64);
+        self.player.heading_deg = norm_deg(heading_deg);
     }
 
     #[func]
@@ -317,6 +327,21 @@ impl TankGame {
     }
 
     #[func]
+    pub fn get_desired_boresight_target_point(&self) -> Vector3 {
+        let turret_pos = self.get_player_turret_world_pos();
+        let az = deg2rad(norm_deg(
+            self.player.heading_deg + self.desired_turret_azimuth_deg,
+        ));
+        let el = deg2rad(self.desired_gun_elevation_deg);
+        let dir = Vector3::new(
+            (el.cos() * az.cos()) as f32,
+            el.sin() as f32,
+            (el.cos() * az.sin()) as f32,
+        );
+        turret_pos + dir * 260.0
+    }
+
+    #[func]
     pub fn get_gunner_eye_pos(&self) -> Vector3 {
         let turret_pos = self.get_player_turret_world_pos();
         let dir = self.get_player_boresight_dir();
@@ -359,8 +384,27 @@ impl TankGame {
     }
 
     #[func]
+    pub fn get_player_track_state(&self) -> Dictionary<Variant, Variant> {
+        self.track_state(&self.player)
+    }
+
+    #[func]
+    pub fn get_target_track_state(&self) -> Dictionary<Variant, Variant> {
+        self.track_state(&self.target)
+    }
+
+    #[func]
     pub fn get_target_alive(&self) -> bool {
         self.target.alive
+    }
+
+    fn track_state(&self, tank: &Tank) -> Dictionary<Variant, Variant> {
+        let mut state: Dictionary<Variant, Variant> = Dictionary::new();
+        state.set("left_phase", tank.left_track_phase_m);
+        state.set("right_phase", tank.right_track_phase_m);
+        state.set("left_compression", tank.road_wheel_compression_m[0].to_vec());
+        state.set("right_compression", tank.road_wheel_compression_m[1].to_vec());
+        state
     }
 
     #[func]
@@ -431,6 +475,14 @@ impl TankGame {
         d.set("module_engine", self.player.module_engine_hp);
         d.set("module_tracks", self.player.module_tracks_hp);
         d.set("module_gun", self.player.module_gun_hp);
+
+        d.set("player_turret_azimuth", self.player.turret_azimuth_deg);
+        d.set("player_gun_elevation", self.player.gun_elevation_deg);
+        d.set("target_turret_azimuth", self.target.turret_azimuth_deg);
+        d.set("target_gun_elevation", self.target.gun_elevation_deg);
+        d.set("desired_turret_azimuth", self.desired_turret_azimuth_deg);
+        d.set("desired_gun_elevation", self.desired_gun_elevation_deg);
+        d.set("sim_time", self.sim_time_s);
 
         d.set("last_player_shot", self.last_player_shot.as_str());
         d.set("last_enemy_shot", self.last_enemy_shot.as_str());

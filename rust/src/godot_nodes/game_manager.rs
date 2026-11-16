@@ -6,9 +6,8 @@ use crate::sim::ammo::AmmoTypeId;
 use crate::sim::combat::{combat_fire_shot, combat_fire_shot_with_bore, CombatShotResult};
 use crate::sim::match_state::{MatchState, SupplyDepot};
 use crate::sim::render_helpers::{
-    terrain_visual_height_at, turret_has_line_of_sight, turret_input_toward,
-    update_chassis_pose, ELEVATION_MOUSE_SENS_DEG_PER_PX, PLAYER_HEIGHT,
-    TURRET_MOUSE_SENS_DEG_PER_PX,
+    terrain_visual_height_at, turret_has_line_of_sight, turret_input_toward, update_chassis_pose,
+    ELEVATION_MOUSE_SENS_DEG_PER_PX, PLAYER_HEIGHT, TURRET_MOUSE_SENS_DEG_PER_PX,
 };
 use crate::sim::tank::{Tank, LEOPARD_BORE_EVACUATOR_OFFSET_M, LEOPARD_GUN_BARREL_LENGTH_M};
 use crate::sim::terrain::terrain_grip_at;
@@ -104,12 +103,7 @@ impl TankGame {
         self.player.update_turret(p_turret, p_elev, delta);
         self.player.tick_reload(delta);
         if self.target.alive {
-            let cmd = ai_compute_command(
-                &mut self.ai_state,
-                &self.target,
-                &self.player,
-                delta,
-            );
+            let cmd = ai_compute_command(&mut self.ai_state, &self.target, &self.player, delta);
 
             self.target.update_movement(
                 cmd.throttle,
@@ -118,7 +112,8 @@ impl TankGame {
                 delta,
             );
             update_chassis_pose(&mut self.target);
-            self.target.update_turret(cmd.turret_input, cmd.elevation_input, delta);
+            self.target
+                .update_turret(cmd.turret_input, cmd.elevation_input, delta);
             self.target.tick_reload(delta);
 
             let ammo_idx = self.target.current_ammo.to_index();
@@ -145,7 +140,10 @@ impl TankGame {
             }
         }
 
-        if self.wave_state.try_resupply(&mut self.player, &self.depot, delta) {
+        if self
+            .wave_state
+            .try_resupply(&mut self.player, &self.depot, delta)
+        {
             self.was_resupplied_notification = true;
         }
 
@@ -198,8 +196,7 @@ impl TankGame {
         );
 
         self.desired_gun_elevation_deg = clampd(
-            self.desired_gun_elevation_deg
-                - mouse_dy * ELEVATION_MOUSE_SENS_DEG_PER_PX
+            self.desired_gun_elevation_deg - mouse_dy * ELEVATION_MOUSE_SENS_DEG_PER_PX
                 + trim_elev * self.player.gun_elevation_dps * dt,
             self.player.gun_elevation_min_deg,
             self.player.gun_elevation_max_deg,
@@ -213,16 +210,17 @@ impl TankGame {
         heading_deg: f64,
         speed_ms: f64,
         hull_pitch_deg: f64,
+        track_speeds: Vector2,
         delta: f64,
     ) {
         self.player.position_m = Vec2::new(position.x as f64, position.z as f64);
         self.player.heading_deg = norm_deg(heading_deg);
         self.player.speed_ms = speed_ms;
         self.player.hull_pitch_deg = hull_pitch_deg;
-        self.player.left_track_speed_ms = speed_ms;
-        self.player.right_track_speed_ms = speed_ms;
-        self.player.left_track_phase_m += speed_ms * delta;
-        self.player.right_track_phase_m += speed_ms * delta;
+        self.player.left_track_speed_ms = track_speeds.x as f64;
+        self.player.right_track_speed_ms = track_speeds.y as f64;
+        self.player.left_track_phase_m += self.player.left_track_speed_ms * delta;
+        self.player.right_track_phase_m += self.player.right_track_speed_ms * delta;
     }
 
     #[func]
@@ -274,11 +272,7 @@ impl TankGame {
 
         let mut trajectory: Array<Vector3> = Array::new();
         for point in res.trajectory_points {
-            trajectory.push(Vector3::new(
-                point.x as f32,
-                point.z as f32,
-                point.y as f32,
-            ));
+            trajectory.push(Vector3::new(point.x as f32, point.z as f32, point.y as f32));
         }
         dict.set("trajectory", &trajectory.to_variant());
 
@@ -348,7 +342,10 @@ impl TankGame {
 
     #[func]
     pub fn get_player_pitch_roll(&self) -> Vector2 {
-        Vector2::new(self.player.hull_pitch_deg as f32, self.player.hull_roll_deg as f32)
+        Vector2::new(
+            self.player.hull_pitch_deg as f32,
+            self.player.hull_roll_deg as f32,
+        )
     }
 
     #[func]
@@ -434,7 +431,10 @@ impl TankGame {
 
     #[func]
     pub fn get_target_pitch_roll(&self) -> Vector2 {
-        Vector2::new(self.target.hull_pitch_deg as f32, self.target.hull_roll_deg as f32)
+        Vector2::new(
+            self.target.hull_pitch_deg as f32,
+            self.target.hull_roll_deg as f32,
+        )
     }
 
     #[func]
@@ -456,8 +456,14 @@ impl TankGame {
         let mut state: Dictionary<Variant, Variant> = Dictionary::new();
         state.set("left_phase", tank.left_track_phase_m);
         state.set("right_phase", tank.right_track_phase_m);
-        state.set("left_compression", tank.road_wheel_compression_m[0].to_vec());
-        state.set("right_compression", tank.road_wheel_compression_m[1].to_vec());
+        state.set(
+            "left_compression",
+            tank.road_wheel_compression_m[0].to_vec(),
+        );
+        state.set(
+            "right_compression",
+            tank.road_wheel_compression_m[1].to_vec(),
+        );
         state
     }
 

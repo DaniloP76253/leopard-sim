@@ -1,71 +1,183 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://dtn06skb678xg"]
 
-[ext_resource type="ArrayMesh" path="res://assets/models/tank/leopard_2a7/models/hull.obj" id="1_hull"]
-[ext_resource type="ArrayMesh" path="res://assets/models/tank/leopard_2a7/models/turret.obj" id="2_turret"]
-[ext_resource type="ArrayMesh" path="res://assets/models/tank/leopard_2a7/models/barrel.obj" id="3_barrel"]
+[ext_resource type="ArrayMesh" uid="uid://ct2s8w0wu1phk" path="res://assets/models/tank/leopard_2a7/models/hull.obj" id="1_hull"]
+[ext_resource type="ArrayMesh" uid="uid://cien2x8c57v1q" path="res://assets/models/tank/leopard_2a7/models/turret.obj" id="2_turret"]
+[ext_resource type="ArrayMesh" uid="uid://b510k1pey81h2" path="res://assets/models/tank/leopard_2a7/models/barrel.obj" id="3_barrel"]
 [ext_resource type="Material" path="res://assets/models/tank/leopard_2a7/materials/metal.tres" id="4_metal"]
-[ext_resource type="ArrayMesh" path="res://assets/models/tank/leopard_2a7/models/mantlet.obj" id="5_mantlet"]
-[ext_resource type="ArrayMesh" path="res://assets/models/tank/leopard_2a7/models/bore_evacuator.obj" id="6_bore_evacuator"]
+[ext_resource type="ArrayMesh" uid="uid://dji51lhwfe44u" path="res://assets/models/tank/leopard_2a7/models/mantlet.obj" id="5_mantlet"]
+[ext_resource type="ArrayMesh" uid="uid://bex5a2hc5mtbt" path="res://assets/models/tank/leopard_2a7/models/bore_evacuator.obj" id="6_bore_evacuator"]
+[ext_resource type="ArrayMesh" uid="uid://gign5apu3g60" path="res://assets/models/tank/leopard_2a7/models/track.obj" id="7_track"]
 
-[node name="TankVisual" type="Node3D"]
+[sub_resource type="CylinderMesh" id="CylinderMesh_fxqbs"]
+top_radius = 0.42
+bottom_radius = 0.42
+height = 0.18
+radial_segments = 16
 
-[node name="Hull" type="Node3D" parent="."]
+[sub_resource type="MultiMesh" id="MultiMesh_75010"]
+instance_count = 0
+transform_format = 1
+instance_count = 7
+mesh = SubResource("CylinderMesh_fxqbs")
+buffer = PackedFloat32Array(0.99999994, 0, 0, -2.4, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, -1.6, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, -0.8, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, 0, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, 0.8, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, 1.6, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, 2.4, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0)
 
-[node name="HullMesh" type="MeshInstance3D" parent="Hull"]
+[sub_resource type="MultiMesh" id="MultiMesh_wg4ih"]
+instance_count = 0
+transform_format = 1
+instance_count = 7
+mesh = SubResource("CylinderMesh_fxqbs")
+buffer = PackedFloat32Array(0.99999994, 0, 0, -2.4, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, -1.6, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, -0.8, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, 0, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, 0.8, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, 1.6, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, 2.4, 0, -4.371139e-08, -1, -0.62, 0, 1, -4.371139e-08, 0)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_ace4b"]
+top_radius = 0.7
+bottom_radius = 0.7
+height = 0.22
+radial_segments = 16
+
+[sub_resource type="MultiMesh" id="MultiMesh_maeku"]
+instance_count = 0
+transform_format = 1
+instance_count = 1
+mesh = SubResource("CylinderMesh_ace4b")
+buffer = PackedFloat32Array(0.99999994, 0, 0, -2.78, 0, -4.371139e-08, -1, -0.34, 0, 1, -4.371139e-08, 0)
+
+[sub_resource type="MultiMesh" id="MultiMesh_x4r3y"]
+instance_count = 0
+transform_format = 1
+instance_count = 1
+mesh = SubResource("CylinderMesh_ace4b")
+buffer = PackedFloat32Array(0.99999994, 0, 0, -2.78, 0, -4.371139e-08, -1, -0.34, 0, 1, -4.371139e-08, 0)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_1ms47"]
+top_radius = 0.7
+bottom_radius = 0.7
+height = 0.2
+radial_segments = 16
+
+[sub_resource type="MultiMesh" id="MultiMesh_b76fa"]
+instance_count = 0
+transform_format = 1
+instance_count = 1
+mesh = SubResource("CylinderMesh_1ms47")
+buffer = PackedFloat32Array(0.99999994, 0, 0, 2.78, 0, -4.371139e-08, -1, -0.34, 0, 1, -4.371139e-08, 0)
+
+[sub_resource type="MultiMesh" id="MultiMesh_jb43f"]
+instance_count = 0
+transform_format = 1
+instance_count = 1
+mesh = SubResource("CylinderMesh_1ms47")
+buffer = PackedFloat32Array(0.99999994, 0, 0, 2.78, 0, -4.371139e-08, -1, -0.34, 0, 1, -4.371139e-08, 0)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_susd6"]
+top_radius = 0.24
+bottom_radius = 0.24
+height = 0.12
+radial_segments = 16
+
+[sub_resource type="MultiMesh" id="MultiMesh_pqxjd"]
+instance_count = 0
+transform_format = 1
+instance_count = 4
+mesh = SubResource("CylinderMesh_susd6")
+buffer = PackedFloat32Array(0.99999994, 0, 0, -1.6, 0, -4.371139e-08, -1, 0.12, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, -0.5, 0, -4.371139e-08, -1, 0.12, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, 0.5, 0, -4.371139e-08, -1, 0.12, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, 1.6, 0, -4.371139e-08, -1, 0.12, 0, 1, -4.371139e-08, 0)
+
+[sub_resource type="MultiMesh" id="MultiMesh_owl1v"]
+instance_count = 0
+transform_format = 1
+instance_count = 4
+mesh = SubResource("CylinderMesh_susd6")
+buffer = PackedFloat32Array(0.99999994, 0, 0, -1.6, 0, -4.371139e-08, -1, 0.12, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, -0.5, 0, -4.371139e-08, -1, 0.12, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, 0.5, 0, -4.371139e-08, -1, 0.12, 0, 1, -4.371139e-08, 0, 0.99999994, 0, 0, 1.6, 0, -4.371139e-08, -1, 0.12, 0, 1, -4.371139e-08, 0)
+
+[sub_resource type="MultiMesh" id="MultiMesh_LeftTrack"]
+instance_count = 0
+transform_format = 1
+mesh = ExtResource("7_track")
+
+[sub_resource type="MultiMesh" id="MultiMesh_RightTrack"]
+instance_count = 0
+transform_format = 1
+mesh = ExtResource("7_track")
+
+[node name="TankVisual" type="Node3D" unique_id=1968809858]
+
+[node name="Hull" type="Node3D" parent="." unique_id=41003840]
+
+[node name="HullMesh" type="MeshInstance3D" parent="Hull" unique_id=1075718625]
 mesh = ExtResource("1_hull")
 
-[node name="Tracks" type="Node3D" parent="."]
+[node name="Tracks" type="TankTracks" parent="Hull" unique_id=2052652045]
+track_mesh = ExtResource("7_track")
 
-[node name="Left" type="MultiMeshInstance3D" parent="Tracks"]
+[node name="Left" type="MultiMeshInstance3D" parent="Hull/Tracks"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1.6980184)
 material_override = ExtResource("4_metal")
+multimesh = SubResource("MultiMesh_LeftTrack")
 
-[node name="Right" type="MultiMeshInstance3D" parent="Tracks"]
+[node name="Right" type="MultiMeshInstance3D" parent="Hull/Tracks"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.691793)
 material_override = ExtResource("4_metal")
+multimesh = SubResource("MultiMesh_RightTrack")
 
-[node name="WheelsLeft" type="MultiMeshInstance3D" parent="Tracks"]
+[node name="WheelsLeft" type="MultiMeshInstance3D" parent="Hull/Tracks" unique_id=1631929495]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1.6980184)
 material_override = ExtResource("4_metal")
+multimesh = SubResource("MultiMesh_75010")
 
-[node name="WheelsRight" type="MultiMeshInstance3D" parent="Tracks"]
+[node name="WheelsRight" type="MultiMeshInstance3D" parent="Hull/Tracks" unique_id=1217371653]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.691793)
 material_override = ExtResource("4_metal")
+multimesh = SubResource("MultiMesh_wg4ih")
 
-[node name="SprocketLeft" type="MultiMeshInstance3D" parent="Tracks"]
+[node name="SprocketLeft" type="MultiMeshInstance3D" parent="Hull/Tracks" unique_id=266864444]
+transform = Transform3D(0.4, 0, 0, 0, 0.4, 0, 0, 0, 0.4, -2.3765287, 0.33989835, -1.660717)
 material_override = ExtResource("4_metal")
+multimesh = SubResource("MultiMesh_maeku")
 
-[node name="SprocketRight" type="MultiMeshInstance3D" parent="Tracks"]
+[node name="SprocketRight" type="MultiMeshInstance3D" parent="Hull/Tracks" unique_id=533721352]
+transform = Transform3D(0.4, 0, 0, 0, 0.4, 0, 0, 0, 0.4, -2.3765287, 0.33989835, 1.646284)
 material_override = ExtResource("4_metal")
+multimesh = SubResource("MultiMesh_x4r3y")
 
-[node name="IdlerLeft" type="MultiMeshInstance3D" parent="Tracks"]
+[node name="IdlerLeft" type="MultiMeshInstance3D" parent="Hull/Tracks" unique_id=1410516982]
+transform = Transform3D(0.4, 0, 0, 0, 0.4, 0, 0, 0, 0.4, 2.8731356, 0.14437819, -1.6422223)
 material_override = ExtResource("4_metal")
+multimesh = SubResource("MultiMesh_b76fa")
 
-[node name="IdlerRight" type="MultiMeshInstance3D" parent="Tracks"]
+[node name="IdlerRight" type="MultiMeshInstance3D" parent="Hull/Tracks" unique_id=729745507]
+transform = Transform3D(0.4, 0, 0, 0, 0.4, 0, 0, 0, 0.4, 2.8731356, 0.14437819, 1.6580985)
 material_override = ExtResource("4_metal")
+multimesh = SubResource("MultiMesh_jb43f")
 
-[node name="ReturnLeft" type="MultiMeshInstance3D" parent="Tracks"]
+[node name="ReturnLeft" type="MultiMeshInstance3D" parent="Hull/Tracks" unique_id=1207142283]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1.7012415)
 material_override = ExtResource("4_metal")
+multimesh = SubResource("MultiMesh_pqxjd")
 
-[node name="ReturnRight" type="MultiMeshInstance3D" parent="Tracks"]
+[node name="ReturnRight" type="MultiMeshInstance3D" parent="Hull/Tracks" unique_id=1920380611]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.6936159)
 material_override = ExtResource("4_metal")
+multimesh = SubResource("MultiMesh_owl1v")
 
-[node name="Turret" type="Node3D" parent="."]
-position = Vector3(0, 0.8, 0)
+[node name="Turret" type="Node3D" parent="." unique_id=1417174911]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
 
-[node name="TurretMesh" type="MeshInstance3D" parent="Turret"]
+[node name="TurretMesh" type="MeshInstance3D" parent="Turret" unique_id=1743927104]
 mesh = ExtResource("2_turret")
 
-[node name="Gun" type="Node3D" parent="Turret"]
-position = Vector3(1.6, 0.35, 0)
+[node name="Gun" type="Node3D" parent="Turret" unique_id=1266470520]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.6, 0.35, 0)
 
-[node name="MantletMesh" type="MeshInstance3D" parent="Turret/Gun"]
-rotation = Vector3(3.1415927, 0, 0)
+[node name="MantletMesh" type="MeshInstance3D" parent="Turret/Gun" unique_id=51688112]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.6, -0.35, 0)
+material_override = ExtResource("4_metal")
 mesh = ExtResource("5_mantlet")
-material_override = ExtResource("4_metal")
 
-[node name="BarrelMesh" type="MeshInstance3D" parent="Turret/Gun"]
+[node name="BarrelMesh" type="MeshInstance3D" parent="Turret/Gun" unique_id=1533559822]
 transform = Transform3D(4.371139e-08, 1, -8.742278e-08, 1, -4.371139e-08, 0, -3.821371e-15, -8.742278e-08, -1, 0, 0, 0)
+material_override = ExtResource("4_metal")
 mesh = ExtResource("3_barrel")
-material_override = ExtResource("4_metal")
 
-[node name="BoreEvacuator" type="MeshInstance3D" parent="Turret/Gun"]
+[node name="BoreEvacuator" type="MeshInstance3D" parent="Turret/Gun" unique_id=2060750427]
 transform = Transform3D(4.371139e-08, 1, -8.742278e-08, 1, -4.371139e-08, 0, -3.821371e-15, -8.742278e-08, -1, 3.3, 0, 0)
-mesh = ExtResource("6_bore_evacuator")
 material_override = ExtResource("4_metal")
+mesh = ExtResource("6_bore_evacuator")

@@ -78,6 +78,30 @@ impl TankChassis {
     }
 
     #[func]
+    pub fn get_actual_track_speeds(&self) -> Vector2 {
+        let transform = self.base().get_global_transform();
+        let velocity = self.base().get_linear_velocity();
+        let angular_velocity = self.base().get_angular_velocity();
+        let forward = transform.basis.col_a().normalized();
+        let up = transform.basis.col_b().normalized();
+        let forward_speed = velocity.dot(forward);
+
+        // Apply steering input to the tread animation immediately. If steering
+        // is released, keep using the measured hull rotation until it settles.
+        let yaw_speed = if self.steer.abs() > 0.01 {
+            -self.steer * MAX_TURN_RATE_RAD_S
+        } else {
+            angular_velocity.dot(up)
+        };
+
+        let left_speed = forward_speed - yaw_speed * TRACK_HALF_GAUGE;
+        let right_speed = forward_speed + yaw_speed * TRACK_HALF_GAUGE;
+        let stop_noise = |speed: f32| if speed.abs() < 0.03 { 0.0 } else { speed };
+
+        Vector2::new(stop_noise(left_speed), stop_noise(right_speed))
+    }
+
+    #[func]
     pub fn get_suspension_contact_count(&self) -> i32 {
         self.contact_count
     }

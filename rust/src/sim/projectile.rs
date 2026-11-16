@@ -79,4 +79,3 @@ impl Projectile {
         Vec3::new(self.vel.x, self.vel.y, self.vz)
     }
 }
-

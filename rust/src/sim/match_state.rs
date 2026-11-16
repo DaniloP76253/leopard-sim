@@ -31,13 +31,7 @@ impl MatchState {
         Self::default()
     }
 
-    pub fn spawn_wave(
-        &self,
-        name: &str,
-        origin: Vec2,
-        min_range_m: f64,
-        max_range_m: f64,
-    ) -> Tank {
+    pub fn spawn_wave(&self, name: &str, origin: Vec2, min_range_m: f64, max_range_m: f64) -> Tank {
         let angle = deg2rad((fastrand::u32(0..360)) as f64);
         let range = min_range_m + fastrand::f64() * (max_range_m - min_range_m);
         let pos = origin.add(Vec2::new(angle.cos() * range, angle.sin() * range));
@@ -86,4 +80,3 @@ impl MatchState {
         !was_full && is_full
     }
 }
-

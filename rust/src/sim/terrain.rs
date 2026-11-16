@@ -79,4 +79,3 @@ pub fn terrain_line_blocked(from: Vec3, to: Vec3) -> bool {
     }
     false
 }
-

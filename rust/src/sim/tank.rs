@@ -312,7 +312,8 @@ impl Tank {
         if tracks_destroyed {
             turn_factor *= 0.15;
         }
-        let turn_rate_dps = steer * self.max_pivot_rate_dps * turn_factor * (0.3 + 0.7 * track_factor);
+        let turn_rate_dps =
+            steer * self.max_pivot_rate_dps * turn_factor * (0.3 + 0.7 * track_factor);
 
         self.heading_deg = norm_deg(self.heading_deg + turn_rate_dps * dt);
 
@@ -385,4 +386,3 @@ impl Tank {
         self.alive && self.module_gun_hp > 5.0 && self.module_turret_hp > 5.0
     }
 }
-

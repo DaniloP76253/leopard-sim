@@ -112,4 +112,3 @@ pub fn clampd(v: f64, lo: f64, hi: f64) -> f64 {
         v
     }
 }
-

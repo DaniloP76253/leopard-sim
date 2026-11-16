@@ -4,23 +4,7 @@ extends TankGame
 const SETTINGS_PATH := "user://settings.cfg"
 const DEFAULT_MOUSE_SENSITIVITY := 3.2
 const DEFAULT_CAMERA_SENSITIVITY := 1.0
-const TRACK_LINK_COUNT := 56
-const TRACK_HALF_GAUGE := 1.95
 const PLAYER_TANK_RENDER_LAYER := 2
-const ROAD_WHEEL_X := [-2.4, -1.6, -0.8, 0.0, 0.8, 1.6, 2.4]
-const RETURN_ROLLER_X := [-1.6, -0.5, 0.5, 1.6]
-const IDLER_X := 2.78
-const SPROCKET_X := -2.78
-const END_WHEEL_RADIUS := 0.70
-const SPROCKET_RADIUS := END_WHEEL_RADIUS
-const IDLER_RADIUS := END_WHEEL_RADIUS
-const END_WHEEL_Y := -0.34          # centro de sprocket e idler
-const ROAD_WHEEL_BASE_Y := -0.62    # centro de las ruedas de carga
-const ROAD_WHEEL_RADIUS := 0.42
-const RETURN_ROLLER_BASE_Y := 0.0   # centro real = BASE_Y + 0.12
-const LINK_HALF_THICKNESS := 0.054
-const TRACK_MESH_LENGTH := 5.6      # largo de track.obj en X
-const TRACK_MESH = preload("res://assets/models/tank/leopard_2a7/models/track.obj")
 const PLAYER_CAMO = preload("res://assets/models/tank/leopard_2a7/materials/player_camo.tres")
 const ENEMY_CAMO = preload("res://assets/models/tank/leopard_2a7/materials/enemy_camo.tres")
 const TANK_METAL = preload("res://assets/models/tank/leopard_2a7/materials/metal.tres")
@@ -29,14 +13,6 @@ const PROJECTILE_VISUAL_SCENES := [
 	preload("res://scenes/projectiles/heat.tscn"),
 	preload("res://scenes/projectiles/he.tscn")
 ]
-
-func _editor_track_state() -> Dictionary:
-	return {
-		"left_phase": 0.0,
-		"right_phase": 0.0,
-		"left_compression": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-		"right_compression": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-	}
 
 @onready var player_tank: Node3D = $PlayerTank
 @onready var player_chassis: TankChassis = $PlayerTank
@@ -47,17 +23,7 @@ func _editor_track_state() -> Dictionary:
 @onready var player_gun: Node3D = $PlayerTank/Visual/Turret/Gun
 @onready var player_mantlet_mesh: MeshInstance3D = $PlayerTank/Visual/Turret/Gun/MantletMesh
 @onready var player_bore_evacuator: MeshInstance3D = $PlayerTank/Visual/Turret/Gun/BoreEvacuator
-@onready var player_tracks_root: Node3D = $PlayerTank/Visual/Tracks
-@onready var player_track_left: MultiMeshInstance3D = $PlayerTank/Visual/Tracks/Left
-@onready var player_track_right: MultiMeshInstance3D = $PlayerTank/Visual/Tracks/Right
-@onready var player_wheels_left: MultiMeshInstance3D = $PlayerTank/Visual/Tracks/WheelsLeft
-@onready var player_wheels_right: MultiMeshInstance3D = $PlayerTank/Visual/Tracks/WheelsRight
-@onready var player_sprocket_left: MultiMeshInstance3D = $PlayerTank/Visual/Tracks/SprocketLeft
-@onready var player_sprocket_right: MultiMeshInstance3D = $PlayerTank/Visual/Tracks/SprocketRight
-@onready var player_idler_left: MultiMeshInstance3D = $PlayerTank/Visual/Tracks/IdlerLeft
-@onready var player_idler_right: MultiMeshInstance3D = $PlayerTank/Visual/Tracks/IdlerRight
-@onready var player_return_left: MultiMeshInstance3D = $PlayerTank/Visual/Tracks/ReturnLeft
-@onready var player_return_right: MultiMeshInstance3D = $PlayerTank/Visual/Tracks/ReturnRight
+@onready var player_tracks: TankTracks = $PlayerTank/Visual/Hull/Tracks
 
 @onready var enemy_tank: Node3D = $EnemyTank
 @onready var enemy_hull: Node3D = $EnemyTank/Visual/Hull
@@ -67,17 +33,7 @@ func _editor_track_state() -> Dictionary:
 @onready var enemy_gun: Node3D = $EnemyTank/Visual/Turret/Gun
 @onready var enemy_mantlet_mesh: MeshInstance3D = $EnemyTank/Visual/Turret/Gun/MantletMesh
 @onready var enemy_bore_evacuator: MeshInstance3D = $EnemyTank/Visual/Turret/Gun/BoreEvacuator
-@onready var enemy_tracks_root: Node3D = $EnemyTank/Visual/Tracks
-@onready var enemy_track_left: MultiMeshInstance3D = $EnemyTank/Visual/Tracks/Left
-@onready var enemy_track_right: MultiMeshInstance3D = $EnemyTank/Visual/Tracks/Right
-@onready var enemy_wheels_left: MultiMeshInstance3D = $EnemyTank/Visual/Tracks/WheelsLeft
-@onready var enemy_wheels_right: MultiMeshInstance3D = $EnemyTank/Visual/Tracks/WheelsRight
-@onready var enemy_sprocket_left: MultiMeshInstance3D = $EnemyTank/Visual/Tracks/SprocketLeft
-@onready var enemy_sprocket_right: MultiMeshInstance3D = $EnemyTank/Visual/Tracks/SprocketRight
-@onready var enemy_idler_left: MultiMeshInstance3D = $EnemyTank/Visual/Tracks/IdlerLeft
-@onready var enemy_idler_right: MultiMeshInstance3D = $EnemyTank/Visual/Tracks/IdlerRight
-@onready var enemy_return_left: MultiMeshInstance3D = $EnemyTank/Visual/Tracks/ReturnLeft
-@onready var enemy_return_right: MultiMeshInstance3D = $EnemyTank/Visual/Tracks/ReturnRight
+@onready var enemy_tracks: TankTracks = $EnemyTank/Visual/Hull/Tracks
 
 @onready var chase_cam: Camera3D = $ChaseCamera
 @onready var gunner_cam: Camera3D = $GunnerCamera
@@ -230,155 +186,13 @@ func _quit_game() -> void:
 	_save_settings()
 	get_tree().quit()
 
-func _configure_track_instance(track_instance: MultiMeshInstance3D) -> void:
-	var multimesh = MultiMesh.new()
-	multimesh.transform_format = MultiMesh.TRANSFORM_3D
-	multimesh.instance_count = TRACK_LINK_COUNT
-	multimesh.mesh = TRACK_MESH
-	track_instance.multimesh = multimesh
-
-func _configure_wheel_instance(wheel_instance: MultiMeshInstance3D, radius: float, height: float, count: int) -> void:
-	var wheel_mesh = CylinderMesh.new()
-	wheel_mesh.top_radius = radius
-	wheel_mesh.bottom_radius = radius
-	wheel_mesh.height = height
-	wheel_mesh.radial_segments = 16
-	var multimesh = MultiMesh.new()
-	multimesh.transform_format = MultiMesh.TRANSFORM_3D
-	multimesh.instance_count = count
-	multimesh.mesh = wheel_mesh
-	wheel_instance.multimesh = multimesh
-
-# --- Recorrido de la oruga -------------------------------------------------
-
-func _bottom_y(x: float, ys: Array) -> float:
-	# xs = [SPROCKET_X, ROAD_WHEEL_X..., IDLER_X] (ascendente), ys del mismo tamaño
-	var count := ROAD_WHEEL_X.size() + 2
-	var prev_x: float = SPROCKET_X
-	for i in range(1, count):
-		var next_x: float = IDLER_X if i == count - 1 else ROAD_WHEEL_X[i - 1]
-		if x <= next_x:
-			return lerpf(ys[i - 1], ys[i], inverse_lerp(prev_x, next_x, x))
-		prev_x = next_x
-	return ys[ys.size() - 1]
-
-func _track_point(d: float, total: float, bottom_ys: Array) -> Vector2:
-	var r := END_WHEEL_RADIUS + LINK_HALF_THICKNESS
-	var run := IDLER_X - SPROCKET_X
-	var arc := PI * r
-	d = fposmod(d, total)
-	if d < arc:                       # arco trasero: abajo -> arriba
-		var a := 1.5 * PI - PI * (d / arc)
-		return Vector2(SPROCKET_X + r * cos(a), END_WHEEL_Y + r * sin(a))
-	d -= arc
-	if d < run:                       # tramo superior (sobre los rodillos)
-		return Vector2(SPROCKET_X + d, END_WHEEL_Y + r)
-	d -= run
-	if d < arc:                       # arco delantero: arriba -> abajo
-		var a2 := 0.5 * PI - PI * (d / arc)
-		return Vector2(IDLER_X + r * cos(a2), END_WHEEL_Y + r * sin(a2))
-	d -= arc
-	var x := IDLER_X - d              # tramo inferior (sigue las ruedas)
-	return Vector2(x, _bottom_y(x, bottom_ys))
-
-func _update_track_side(track_instance: MultiMeshInstance3D, phase: float, compression: Array, side_sign: float) -> void:
-	var multimesh := track_instance.multimesh
-	var r := END_WHEEL_RADIUS + LINK_HALF_THICKNESS
-	var total := 2.0 * ((IDLER_X - SPROCKET_X) + PI * r)
-	var step := total / float(TRACK_LINK_COUNT)
-
-	var base_y := ROAD_WHEEL_BASE_Y - ROAD_WHEEL_RADIUS - LINK_HALF_THICKNESS
-	var bottom_ys: Array = [base_y]
-	for c in compression:
-		bottom_ys.append(base_y + c)
-	bottom_ys.append(base_y)
-
-	var link_scale := Vector3(step * 1.05 / TRACK_MESH_LENGTH, 0.18, 0.36)
-	for index in range(TRACK_LINK_COUNT):
-		var d := phase + (index + 0.5) * step
-		var p := _track_point(d, total, bottom_ys)
-		var tangent := _track_point(d + 0.03, total, bottom_ys) - _track_point(d - 0.03, total, bottom_ys)
-		var link_basis := Basis(Vector3.BACK, atan2(tangent.y, tangent.x)).scaled_local(link_scale)
-		multimesh.set_instance_transform(index, Transform3D(link_basis, Vector3(p.x, p.y, TRACK_HALF_GAUGE * side_sign)))
-
-# --- Ruedas -----------------------------------------------------------------
-
-func _update_wheels(wheel_instance: MultiMeshInstance3D, compression: Array, side_sign: float, phase: float) -> void:
-	var multimesh = wheel_instance.multimesh
-	for index in range(ROAD_WHEEL_X.size()):
-		var wheel_basis = Basis(Vector3(0.0, 0.0, 1.0), -phase / ROAD_WHEEL_RADIUS) * Basis(Vector3.RIGHT, PI * 0.5)
-		var wheel_position = Vector3(
-			ROAD_WHEEL_X[index],
-			ROAD_WHEEL_BASE_Y + compression[index],
-			TRACK_HALF_GAUGE * side_sign
-		)
-		multimesh.set_instance_transform(index, Transform3D(wheel_basis, wheel_position))
-
-func _update_role_wheel(wheel_instance: MultiMeshInstance3D, x: float, y: float, side_sign: float, phase: float, radius: float) -> void:
-	var wheel_basis = Basis(Vector3(0.0, 0.0, 1.0), -phase / radius) * Basis(Vector3.RIGHT, PI * 0.5)
-	wheel_instance.multimesh.set_instance_transform(0, Transform3D(wheel_basis, Vector3(x, y, TRACK_HALF_GAUGE * side_sign)))
-
-func _update_return_rollers(wheel_instance: MultiMeshInstance3D, side_sign: float, phase: float) -> void:
-	var wheel_basis = Basis(Vector3(0.0, 0.0, 1.0), -phase / 0.24) * Basis(Vector3.RIGHT, PI * 0.5)
-	for index in range(RETURN_ROLLER_X.size()):
-		var roller_position = Vector3(RETURN_ROLLER_X[index], RETURN_ROLLER_BASE_Y + 0.12, TRACK_HALF_GAUGE * side_sign)
-		wheel_instance.multimesh.set_instance_transform(index, Transform3D(wheel_basis, roller_position))
-
-func _update_tracks(root: Node3D, left: MultiMeshInstance3D, right: MultiMeshInstance3D, wheels_left: MultiMeshInstance3D, wheels_right: MultiMeshInstance3D, sprocket_left: MultiMeshInstance3D, sprocket_right: MultiMeshInstance3D, idler_left: MultiMeshInstance3D, idler_right: MultiMeshInstance3D, return_left: MultiMeshInstance3D, return_right: MultiMeshInstance3D, state: Dictionary, hull_rotation: Vector3) -> void:
-	root.rotation = hull_rotation
-	var left_compression = state.get("left_compression", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-	var right_compression = state.get("right_compression", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-	var left_phase = state.get("left_phase", 0.0)
-	var right_phase = state.get("right_phase", 0.0)
-	_update_track_side(left, left_phase, left_compression, -1.0)
-	_update_track_side(right, right_phase, right_compression, 1.0)
-	_update_wheels(wheels_left, left_compression, -1.0, left_phase)
-	_update_wheels(wheels_right, right_compression, 1.0, right_phase)
-	_update_role_wheel(sprocket_left, SPROCKET_X, END_WHEEL_Y, -1.0, left_phase, SPROCKET_RADIUS)
-	_update_role_wheel(sprocket_right, SPROCKET_X, END_WHEEL_Y, 1.0, right_phase, SPROCKET_RADIUS)
-	_update_role_wheel(idler_left, IDLER_X, END_WHEEL_Y, -1.0, left_phase, IDLER_RADIUS)
-	_update_role_wheel(idler_right, IDLER_X, END_WHEEL_Y, 1.0, right_phase, IDLER_RADIUS)
-	_update_return_rollers(return_left, -1.0, left_phase)
-	_update_return_rollers(return_right, 1.0, right_phase)
-
-func _player_track_state_from_suspension() -> Dictionary:
-	var state: Dictionary = get_player_track_state()
-	var left_compression: Array = []
-	var right_compression: Array = []
-	for index in range(ROAD_WHEEL_X.size()):
-		left_compression.append(player_chassis.get_wheel_compression(index))
-		right_compression.append(player_chassis.get_wheel_compression(index + ROAD_WHEEL_X.size()))
-	state["left_compression"] = left_compression
-	state["right_compression"] = right_compression
-	return state
-
 func _ready() -> void:
 	set_process_input(true)
 	if Engine.is_editor_hint():
-		_configure_track_instance(player_track_left)
-		_configure_track_instance(player_track_right)
-		_configure_wheel_instance(player_wheels_left, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
-		_configure_wheel_instance(player_wheels_right, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
-		_configure_wheel_instance(player_sprocket_left, SPROCKET_RADIUS, 0.22, 1)
-		_configure_wheel_instance(player_sprocket_right, SPROCKET_RADIUS, 0.22, 1)
-		_configure_wheel_instance(player_idler_left, IDLER_RADIUS, 0.20, 1)
-		_configure_wheel_instance(player_idler_right, IDLER_RADIUS, 0.20, 1)
-		_configure_wheel_instance(player_return_left, 0.24, 0.12, RETURN_ROLLER_X.size())
-		_configure_wheel_instance(player_return_right, 0.24, 0.12, RETURN_ROLLER_X.size())
-		_configure_track_instance(enemy_track_left)
-		_configure_track_instance(enemy_track_right)
-		_configure_wheel_instance(enemy_wheels_left, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
-		_configure_wheel_instance(enemy_wheels_right, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
-		_configure_wheel_instance(enemy_sprocket_left, SPROCKET_RADIUS, 0.22, 1)
-		_configure_wheel_instance(enemy_sprocket_right, SPROCKET_RADIUS, 0.22, 1)
-		_configure_wheel_instance(enemy_idler_left, IDLER_RADIUS, 0.20, 1)
-		_configure_wheel_instance(enemy_idler_right, IDLER_RADIUS, 0.20, 1)
-		_configure_wheel_instance(enemy_return_left, 0.24, 0.12, RETURN_ROLLER_X.size())
-		_configure_wheel_instance(enemy_return_right, 0.24, 0.12, RETURN_ROLLER_X.size())
-		_update_tracks(player_tracks_root, player_track_left, player_track_right, player_wheels_left, player_wheels_right, player_sprocket_left, player_sprocket_right, player_idler_left, player_idler_right, player_return_left, player_return_right, _editor_track_state(), Vector3.ZERO)
-		_update_tracks(enemy_tracks_root, enemy_track_left, enemy_track_right, enemy_wheels_left, enemy_wheels_right, enemy_sprocket_left, enemy_sprocket_right, enemy_idler_left, enemy_idler_right, enemy_return_left, enemy_return_right, _editor_track_state(), Vector3.ZERO)
 		return
 	_load_settings()
+	resume_button.pressed.connect(_toggle_pause_menu)
+	quit_button.pressed.connect(_quit_game)
 	player_chassis.rotation = Vector3.ZERO
 	# La caja del chasis queda a ~0.2 m del suelo; los rayos alcanzan la altura de reposo.
 	player_chassis.global_position = get_player_position() + Vector3(0.0, -0.35, 0.0)
@@ -415,26 +229,6 @@ func _ready() -> void:
 	invert_check.toggled.connect(_on_invert_mouse_toggled)
 	_update_sensitivity_label()
 	_update_camera_sensitivity_label()
-	_configure_track_instance(player_track_left)
-	_configure_track_instance(player_track_right)
-	_configure_wheel_instance(player_wheels_left, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
-	_configure_wheel_instance(player_wheels_right, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
-	_configure_wheel_instance(player_sprocket_left, SPROCKET_RADIUS, 0.22, 1)
-	_configure_wheel_instance(player_sprocket_right, SPROCKET_RADIUS, 0.22, 1)
-	_configure_wheel_instance(player_idler_left, IDLER_RADIUS, 0.20, 1)
-	_configure_wheel_instance(player_idler_right, IDLER_RADIUS, 0.20, 1)
-	_configure_wheel_instance(player_return_left, 0.24, 0.12, RETURN_ROLLER_X.size())
-	_configure_wheel_instance(player_return_right, 0.24, 0.12, RETURN_ROLLER_X.size())
-	_configure_track_instance(enemy_track_left)
-	_configure_track_instance(enemy_track_right)
-	_configure_wheel_instance(enemy_wheels_left, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
-	_configure_wheel_instance(enemy_wheels_right, ROAD_WHEEL_RADIUS, 0.18, ROAD_WHEEL_X.size())
-	_configure_wheel_instance(enemy_sprocket_left, SPROCKET_RADIUS, 0.22, 1)
-	_configure_wheel_instance(enemy_sprocket_right, SPROCKET_RADIUS, 0.22, 1)
-	_configure_wheel_instance(enemy_idler_left, IDLER_RADIUS, 0.20, 1)
-	_configure_wheel_instance(enemy_idler_right, IDLER_RADIUS, 0.20, 1)
-	_configure_wheel_instance(enemy_return_left, 0.24, 0.12, RETURN_ROLLER_X.size())
-	_configure_wheel_instance(enemy_return_right, 0.24, 0.12, RETURN_ROLLER_X.size())
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	var depot_pos = get_depot_position()
 	if depot_node:
@@ -539,8 +333,6 @@ func _process(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint():
-		_update_tracks(player_tracks_root, player_track_left, player_track_right, player_wheels_left, player_wheels_right, player_sprocket_left, player_sprocket_right, player_idler_left, player_idler_right, player_return_left, player_return_right, _editor_track_state(), Vector3.ZERO)
-		_update_tracks(enemy_tracks_root, enemy_track_left, enemy_track_right, enemy_wheels_left, enemy_wheels_right, enemy_sprocket_left, enemy_sprocket_right, enemy_idler_left, enemy_idler_right, enemy_return_left, enemy_return_right, _editor_track_state(), Vector3.ZERO)
 		return
 	if pause_menu and pause_menu.visible:
 		return
@@ -549,7 +341,8 @@ func _physics_process(delta: float) -> void:
 	var player_forward_speed := player_chassis.linear_velocity.dot(player_forward)
 	var player_heading := rad_to_deg(atan2(player_forward.z, player_forward.x))
 	var player_pitch := rad_to_deg(atan2(player_forward.y, Vector2(player_forward.x, player_forward.z).length()))
-	sync_player_chassis_state(player_chassis.global_position, player_heading, player_forward_speed, player_pitch, delta)
+	var track_speeds := player_chassis.get_actual_track_speeds()
+	sync_player_chassis_state(player_chassis.global_position, player_heading, player_forward_speed, player_pitch, track_speeds, delta)
 	player_chassis.simulate_physics_step(delta)
 	advance_simulation_from_godot(delta)
 
@@ -559,7 +352,7 @@ func _physics_process(delta: float) -> void:
 	var p_pos = get_player_position()
 
 	player_hull.rotation = Vector3.ZERO
-	_update_tracks(player_tracks_root, player_track_left, player_track_right, player_wheels_left, player_wheels_right, player_sprocket_left, player_sprocket_right, player_idler_left, player_idler_right, player_return_left, player_return_right, _player_track_state_from_suspension(), Vector3.ZERO)
+	player_tracks.update_player_track_state(get_player_track_state())
 
 	var p_turret_rel = deg_to_rad(-get_player_turret_azimuth())
 	player_turret.position = Vector3(0.0, 0.8, 0.0)
@@ -580,7 +373,7 @@ func _physics_process(delta: float) -> void:
 		var t_hdg_rad = deg_to_rad(-get_target_heading())
 		var t_pr = get_target_pitch_roll()
 		enemy_hull.rotation = Vector3(deg_to_rad(-t_pr.x), t_hdg_rad, deg_to_rad(t_pr.y))
-		_update_tracks(enemy_tracks_root, enemy_track_left, enemy_track_right, enemy_wheels_left, enemy_wheels_right, enemy_sprocket_left, enemy_sprocket_right, enemy_idler_left, enemy_idler_right, enemy_return_left, enemy_return_right, get_target_track_state(), enemy_hull.rotation)
+		enemy_tracks.update_sim_track_state(get_target_track_state())
 
 		var t_turret_abs = deg_to_rad(-get_target_absolute_turret_azimuth())
 		enemy_turret.position = Vector3(0.0, 0.8, 0.0)

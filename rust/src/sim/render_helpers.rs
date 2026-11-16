@@ -41,17 +41,12 @@ pub fn update_chassis_pose(t: &mut Tank) {
         0.08,
     ) as f64;
 
-    let hull_visual_y = terrain_visual_height_at(t.position_m) as f64
-        + PLAYER_HEIGHT as f64
-        + t.hull_bounce_m;
+    let hull_visual_y =
+        terrain_visual_height_at(t.position_m) as f64 + PLAYER_HEIGHT as f64 + t.hull_bounce_m;
     for (side_index, side_sign) in [-1.0, 1.0].iter().enumerate() {
         let side_offset = right.scale(TRACK_HALF_GAUGE * side_sign);
         for (wheel_index, wheel_x) in ROAD_WHEEL_X.iter().enumerate() {
-            let wheel_position = t.position_m.add(
-                forward
-                    .scale(*wheel_x)
-                    .add(side_offset),
-            );
+            let wheel_position = t.position_m.add(forward.scale(*wheel_x).add(side_offset));
             let ground_y = terrain_visual_height_at(wheel_position) as f64;
             let desired_wheel_y = ground_y + ROAD_WHEEL_RADIUS;
             let compression = clampd(
@@ -92,11 +87,7 @@ pub fn turret_input_toward(
     );
 
     let el_error = desired_el_deg - player.gun_elevation_deg;
-    let elev_input = clampd(
-        el_error / (player.gun_elevation_dps * dt + 1e-6),
-        -1.0,
-        1.0,
-    );
+    let elev_input = clampd(el_error / (player.gun_elevation_dps * dt + 1e-6), -1.0, 1.0);
 
     (turret_input, elev_input)
 }

@@ -29,11 +29,7 @@ pub struct ArmorProfile {
     pub roof: ArmorPlate,
 }
 
-pub fn armor_plate_world_normal(
-    parent_yaw_deg: f64,
-    face_offset_deg: f64,
-    slope_deg: f64,
-) -> Vec3 {
+pub fn armor_plate_world_normal(parent_yaw_deg: f64, face_offset_deg: f64, slope_deg: f64) -> Vec3 {
     let yaw = deg2rad(parent_yaw_deg + face_offset_deg);
     let slope = deg2rad(slope_deg);
 
@@ -76,4 +72,3 @@ pub fn armor_effective_thickness(
 
     plate.thickness_mm / cos_eff
 }
-

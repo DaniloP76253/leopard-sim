@@ -128,4 +128,3 @@ pub fn ai_compute_command(
 
     cmd
 }
-

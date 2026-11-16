@@ -101,4 +101,3 @@ impl AmmoStats {
         self.muzzle_velocity_ms * (-self.drag_decel_per_m * range_m).exp()
     }
 }
-

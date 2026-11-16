@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://b00vjc0tqm01f"]
 
 [ext_resource type="Script" uid="uid://dlaggtbsxyj1k" path="res://scenes/main.gd" id="1_maingd"]
-[ext_resource type="ArrayMesh" path="res://assets/models/generated/world/terrain.obj" id="5_terrain"]
+[ext_resource type="ArrayMesh" uid="uid://da2m0guo1a407" path="res://assets/models/generated/world/terrain.obj" id="5_terrain"]
 [ext_resource type="Material" path="res://assets/models/generated/world/materials/terrain.tres" id="8_terrainmat"]
 [ext_resource type="Script" uid="uid://d1t3lvwb0xdlh" path="res://scenes/sight_overlay.gd" id="10_sight"]
 [ext_resource type="PackedScene" path="res://scenes/tank_visual.tscn" id="12_tank_visual"]
@@ -160,12 +160,10 @@ mouse_filter = 2
 script = ExtResource("10_sight")
 
 [node name="PauseMenu" type="PanelContainer" parent="HUD" unique_id=2144083555]
-offset_left = -210.0
-offset_top = -220.0
-offset_right = 210.0
-offset_bottom = 220.0
-grow_horizontal = 2
-grow_vertical = 2
+offset_left = 397.0
+offset_top = 167.0
+offset_right = 817.0
+offset_bottom = 607.0
 
 [node name="Margin" type="MarginContainer" parent="HUD/PauseMenu" unique_id=1913207174]
 layout_mode = 2

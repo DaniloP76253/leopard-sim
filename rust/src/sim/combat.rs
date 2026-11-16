@@ -120,11 +120,7 @@ fn apply_module_damage(
     target.module_optics_hp = clampd(target.module_optics_hp, 0.0, 100.0);
 }
 
-fn apply_nonpenetration_damage(
-    target: &mut Tank,
-    plate_target: PlateTarget,
-    ammo: &AmmoStats,
-) {
+fn apply_nonpenetration_damage(target: &mut Tank, plate_target: PlateTarget, ammo: &AmmoStats) {
     let splash = 2.5 + ammo.he_filler_g / 18.0;
 
     match plate_target {
@@ -186,7 +182,10 @@ pub fn combat_fire_shot_with_bore(
     let mut r = CombatShotResult::default();
 
     if !target.alive {
-        r.message = format!("{} is already destroyed -- nothing to shoot at.", target.name);
+        r.message = format!(
+            "{} is already destroyed -- nothing to shoot at.",
+            target.name
+        );
         return r;
     }
     if !shooter.can_fire() {
@@ -288,11 +287,13 @@ pub fn combat_fire_shot_with_bore(
             terrain_blocked = true;
             break;
         }
-        if d <= HIT_RADIUS_M && local_z_at_closest >= 0.0 && local_z_at_closest <= SILHOUETTE_MAX_Z {
+        if d <= HIT_RADIUS_M && local_z_at_closest >= 0.0 && local_z_at_closest <= SILHOUETTE_MAX_Z
+        {
             hit = true;
             hit_z = local_z_at_closest;
             hit_position = closest_point;
-            hit_range_m = prev_dist_traveled + tparam * (proj.distance_traveled_m - prev_dist_traveled);
+            hit_range_m =
+                prev_dist_traveled + tparam * (proj.distance_traveled_m - prev_dist_traveled);
             break;
         }
     }
@@ -330,7 +331,11 @@ pub fn combat_fire_shot_with_bore(
     let vy = proj.vel.y;
     let vz = proj.vz;
     let horiz_speed = (vx * vx + vy * vy).sqrt();
-    let descent_deg = rad2deg((-vz).atan2(if horiz_speed > 1e-6 { horiz_speed } else { 1e-6 }));
+    let descent_deg = rad2deg((-vz).atan2(if horiz_speed > 1e-6 {
+        horiz_speed
+    } else {
+        1e-6
+    }));
 
     let plate: ArmorPlate;
     let normal: Vec3;

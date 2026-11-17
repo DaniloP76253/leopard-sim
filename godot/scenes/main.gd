@@ -5,6 +5,7 @@ const SETTINGS_PATH := "user://settings.cfg"
 const DEFAULT_MOUSE_SENSITIVITY := 3.2
 const DEFAULT_CAMERA_SENSITIVITY := 1.0
 const PLAYER_TANK_RENDER_LAYER := 2
+const PLAYER_WHEEL_COUNT := 14
 const PLAYER_CAMO = preload("res://assets/models/tank/leopard_2a7/materials/player_camo.tres")
 const ENEMY_CAMO = preload("res://assets/models/tank/leopard_2a7/materials/enemy_camo.tres")
 const TANK_METAL = preload("res://assets/models/tank/leopard_2a7/materials/metal.tres")
@@ -62,6 +63,7 @@ var is_rmb_down: bool = false
 var mouse_sensitivity: float = DEFAULT_MOUSE_SENSITIVITY
 var camera_sensitivity: float = DEFAULT_CAMERA_SENSITIVITY
 var invert_mouse_y: bool = false
+var player_wheel_compressions := PackedFloat32Array()
 
 func _load_settings() -> void:
 	var settings = ConfigFile.new()
@@ -191,6 +193,7 @@ func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
 	_load_settings()
+	player_wheel_compressions.resize(PLAYER_WHEEL_COUNT)
 	resume_button.pressed.connect(_toggle_pause_menu)
 	quit_button.pressed.connect(_quit_game)
 	player_chassis.rotation = Vector3.ZERO
@@ -345,6 +348,8 @@ func _physics_process(delta: float) -> void:
 	sync_player_chassis_state(player_chassis.global_position, player_heading, player_forward_speed, player_pitch, track_speeds, delta)
 	player_chassis.simulate_physics_step(delta)
 	advance_simulation_from_godot(delta)
+	for wheel_index in range(PLAYER_WHEEL_COUNT):
+		player_wheel_compressions[wheel_index] = player_chassis.get_wheel_compression(wheel_index)
 
 	# 1. Update Player Tank Visuals
 	# El Visual del jugador es hijo del RigidBody, que ya se inclina/gira:
@@ -352,7 +357,7 @@ func _physics_process(delta: float) -> void:
 	var p_pos = get_player_position()
 
 	player_hull.rotation = Vector3.ZERO
-	player_tracks.update_player_track_state(get_player_track_state())
+	player_tracks.update_player_track_state(get_player_track_state(), player_wheel_compressions)
 
 	var p_turret_rel = deg_to_rad(-get_player_turret_azimuth())
 	player_turret.position = Vector3(0.0, 0.8, 0.0)
@@ -368,7 +373,7 @@ func _physics_process(delta: float) -> void:
 	enemy_tank.visible = t_alive
 	if t_alive:
 		var t_pos = get_target_position()
-		enemy_tank.position = t_pos
+		enemy_tank.position = t_pos + Vector3(0.0, 0.2, 0.0)
 
 		var t_hdg_rad = deg_to_rad(-get_target_heading())
 		var t_pr = get_target_pitch_roll()

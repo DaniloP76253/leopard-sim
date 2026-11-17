@@ -5,20 +5,15 @@ const WHEEL_COUNT_PER_SIDE: usize = 7;
 const WHEEL_COUNT: usize = WHEEL_COUNT_PER_SIDE * 2;
 const TRACK_HALF_GAUGE: f32 = 1.95;
 // Ray origin is at y=0.25; wheel center at full extension is y=-0.62.
-const REST_LENGTH: f32 = 1.29;
-const MAX_LENGTH: f32 = 1.55;
+const MAX_LENGTH: f32 = 1.75;
 const MAX_COMPRESSION: f32 = 0.45;
-// At 67 t, 14 springs at this rate settle about 0.13 m into their travel.
-const SPRING_RATE: f32 = 350000.0;
-const DAMPING_RATE: f32 = 50000.0;
-const MAX_SUSPENSION_FORCE: f32 = 80000.0;
 const LATERAL_GRIP: f32 = 8.0;
-const MAX_LATERAL_GRIP: f32 = 1.1;
+const MAX_LATERAL_GRIP: f32 = 1.0;
 const TRACK_RADIUS: f32 = 0.42;
 const MAX_GROUND_SPEED_FWD: f32 = 60.0 / 3.6;
 const MAX_GROUND_SPEED_REV: f32 = 25.0 / 3.6;
 const MAX_TURN_RATE_RAD_S: f32 = 45.0_f32.to_radians();
-const DRIVE_ACCELERATION: f32 = 3.0;
+const DRIVE_ACCELERATION: f32 = 4.5;
 const STEER_ACCELERATION: f32 = 6.0;
 const DRIVE_BRAKE_ACCELERATION: f32 = 4.0;
 
@@ -30,6 +25,18 @@ pub struct TankChassis {
     steer: f32,
     wheel_lengths: [f32; WHEEL_COUNT],
     contact_count: i32,
+
+    #[export]
+    pub track_friction: f32,
+
+    #[export]
+    pub suspension_spring_rate: f32,
+    #[export]
+    pub suspension_damping_rate: f32,
+    #[export]
+    pub suspension_max_force: f32,
+    #[export]
+    pub suspension_rest_length: f32,
 }
 
 #[godot_api]
@@ -41,6 +48,13 @@ impl IRigidBody3D for TankChassis {
             steer: 0.0,
             wheel_lengths: [MAX_LENGTH; WHEEL_COUNT],
             contact_count: 0,
+            track_friction: 1.0,
+            // 14 springs at this rate support 67 t after about 0.13 m of travel.
+            suspension_spring_rate: 350000.0,
+            suspension_damping_rate: 50000.0,
+            suspension_max_force: 80000.0,
+            // Matches the wheel radius plus tread thickness at full extension.
+            suspension_rest_length: 1.544,
         }
     }
 
@@ -63,7 +77,10 @@ impl TankChassis {
     #[func]
     pub fn get_wheel_compression(&self, index: i32) -> f32 {
         let index = index.clamp(0, (WHEEL_COUNT - 1) as i32) as usize;
-        (REST_LENGTH - self.wheel_lengths[index]).max(0.0)
+        let rest_length = self
+            .suspension_rest_length
+            .clamp(MAX_COMPRESSION, MAX_LENGTH + MAX_COMPRESSION);
+        (rest_length - self.wheel_lengths[index]).clamp(0.0, MAX_COMPRESSION)
     }
 
     #[func]
@@ -79,6 +96,10 @@ impl TankChassis {
 
     #[func]
     pub fn get_actual_track_speeds(&self) -> Vector2 {
+        if self.throttle.abs() <= 0.01 && self.steer.abs() <= 0.01 {
+            return Vector2::ZERO;
+        }
+
         let transform = self.base().get_global_transform();
         let velocity = self.base().get_linear_velocity();
         let angular_velocity = self.base().get_angular_velocity();
@@ -112,6 +133,9 @@ impl TankChassis {
         // `rows` are matrix rows, not local axes. Use the rotated basis columns.
         let forward = transform.basis.col_a();
         let right = transform.basis.col_c();
+        let rest_length = self
+            .suspension_rest_length
+            .clamp(MAX_COMPRESSION, MAX_LENGTH + MAX_COMPRESSION);
 
         let mut contacts = [false; WHEEL_COUNT];
         let mut contact_positions = [Vector3::ZERO; WHEEL_COUNT];
@@ -144,12 +168,102 @@ impl TankChassis {
                 self.wheel_lengths[index] = ray
                     .get_global_position()
                     .distance_to(contact_positions[index])
-                    .clamp(REST_LENGTH - MAX_COMPRESSION, MAX_LENGTH);
+                    .clamp(rest_length - MAX_COMPRESSION, MAX_LENGTH);
             }
         }
         self.contact_count = contacts.iter().filter(|contact| **contact).count() as i32;
         let angular_velocity = self.base().get_angular_velocity();
         let mass = self.base().get_mass();
+        let friction = self.track_friction.max(0.0);
+        let spring_rate = self.suspension_spring_rate.max(0.0);
+        let damping_rate = self.suspension_damping_rate.max(0.0);
+        let max_suspension_force = self.suspension_max_force.max(0.0);
+        let mut spring_loads = [0.0_f32; WHEEL_COUNT];
+        let mut normal_loads = [0.0_f32; WHEEL_COUNT];
+        let mut lateral_forces = [Vector3::ZERO; WHEEL_COUNT];
+        for index in 0..WHEEL_COUNT {
+            if !contacts[index] {
+                continue;
+            }
+
+            let contact = contact_positions[index];
+            let force_offset = contact - transform.origin;
+            let contact_velocity = velocity + angular_velocity.cross(force_offset);
+            let normal = contact_normals[index];
+            let compression = (rest_length - self.wheel_lengths[index]).clamp(0.0, MAX_COMPRESSION);
+            let compression_speed = -contact_velocity.dot(normal);
+            let spring_force = spring_rate * compression;
+            let damping_force = damping_rate * compression_speed;
+            let suspension_force = (spring_force + damping_force).clamp(0.0, max_suspension_force);
+            spring_loads[index] = suspension_force;
+            self.base_mut()
+                .apply_force_ex(normal * suspension_force)
+                .position(force_offset)
+                .done();
+        }
+
+        // Estimate contact load from vehicle weight if the suspension rays
+        // are at full extension; use spring loads when they are higher.
+        for side_index in 0..2 {
+            let first_wheel = side_index * WHEEL_COUNT_PER_SIDE;
+            let side_range = first_wheel..first_wheel + WHEEL_COUNT_PER_SIDE;
+            let mut side_contacts = 0;
+            let mut normal_y_sum = 0.0;
+            let mut spring_support = 0.0;
+            for index in side_range.clone() {
+                if contacts[index] {
+                    side_contacts += 1;
+                    normal_y_sum += contact_normals[index].y.max(0.0);
+                    spring_support += spring_loads[index];
+                }
+            }
+            if side_contacts == 0 {
+                continue;
+            }
+
+            let average_normal_y = normal_y_sum / side_contacts as f32;
+            let estimated_support = mass * 9.81 * average_normal_y * 0.5;
+            let side_support = estimated_support.max(spring_support);
+            for index in side_range {
+                if !contacts[index] {
+                    continue;
+                }
+                normal_loads[index] = if spring_support > estimated_support {
+                    side_support * spring_loads[index] / spring_support
+                } else {
+                    side_support / side_contacts as f32
+                };
+            }
+        }
+
+        for index in 0..WHEEL_COUNT {
+            if !contacts[index] {
+                continue;
+            }
+
+            let contact = contact_positions[index];
+            let force_offset = contact - transform.origin;
+            let contact_velocity = velocity + angular_velocity.cross(force_offset);
+            let normal = contact_normals[index];
+            let lateral_axis = right - normal * right.dot(normal);
+            if lateral_axis.length_squared() <= 0.0001 {
+                continue;
+            }
+            let lateral_axis = lateral_axis.normalized();
+            // Side slip and drive share the friction available at each contact.
+            let lateral_speed = contact_velocity.dot(lateral_axis);
+            let max_lateral_force = normal_loads[index] * friction * MAX_LATERAL_GRIP;
+            let lateral_force_magnitude =
+                (-lateral_speed * (mass / WHEEL_COUNT as f32) * LATERAL_GRIP)
+                    .clamp(-max_lateral_force, max_lateral_force);
+            let lateral_force = lateral_axis * lateral_force_magnitude;
+            lateral_forces[index] = lateral_force;
+            self.base_mut()
+                .apply_force_ex(lateral_force)
+                .position(force_offset)
+                .done();
+        }
+
         let forward_target = if self.throttle >= 0.0 {
             self.throttle * MAX_GROUND_SPEED_FWD
         } else {
@@ -175,53 +289,41 @@ impl TankChassis {
             };
             let drive_acceleration =
                 (speed_error / delta.max(0.0001)).clamp(-acceleration_limit, acceleration_limit);
-            let grounded_wheels = contacts[first_wheel..first_wheel + WHEEL_COUNT_PER_SIDE]
+            let side_load: f32 = normal_loads[first_wheel..first_wheel + WHEEL_COUNT_PER_SIDE]
                 .iter()
-                .filter(|contact| **contact)
-                .count() as f32;
-            let contact_ratio = grounded_wheels / WHEEL_COUNT_PER_SIDE as f32;
-            let drive_force = forward * (drive_acceleration * mass * 0.5 * contact_ratio);
-            self.base_mut()
-                .apply_force_ex(drive_force)
-                .position(track_offset)
-                .done();
-        }
-
-        for index in 0..WHEEL_COUNT {
-            if !contacts[index] {
+                .sum();
+            if side_load <= 0.0 {
                 continue;
             }
 
-            let contact = contact_positions[index];
-            let force_offset = contact - transform.origin;
-            let contact_velocity = velocity + angular_velocity.cross(force_offset);
-            let normal = contact_normals[index];
-            let compression = (REST_LENGTH - self.wheel_lengths[index]).max(0.0);
-            let compression_speed = -contact_velocity.dot(normal);
-            let spring_force = SPRING_RATE * compression;
-            let damping_force = DAMPING_RATE * compression_speed;
-            let suspension_force = (spring_force + damping_force).clamp(0.0, MAX_SUSPENSION_FORCE);
-            self.base_mut()
-                .apply_force_ex(normal * suspension_force)
-                .position(force_offset)
-                .done();
+            let requested_side_force = drive_acceleration * mass * 0.5;
+            for wheel_index in first_wheel..first_wheel + WHEEL_COUNT_PER_SIDE {
+                let normal_load = normal_loads[wheel_index];
+                if normal_load <= 0.0 {
+                    continue;
+                }
 
-            let lateral_axis = right - normal * right.dot(normal);
-            if lateral_axis.length_squared() <= 0.0001 {
-                continue;
+                let normal = contact_normals[wheel_index];
+                let drive_axis = forward - normal * forward.dot(normal);
+                if drive_axis.length_squared() <= 0.0001 {
+                    continue;
+                }
+                let drive_axis = drive_axis.normalized();
+                let friction_capacity = normal_load * friction;
+                let lateral_capacity = lateral_forces[wheel_index].length();
+                let max_drive_force = (friction_capacity * friction_capacity
+                    - lateral_capacity * lateral_capacity)
+                    .max(0.0)
+                    .sqrt();
+                let requested_wheel_force = requested_side_force * normal_load / side_load;
+                let drive_force =
+                    drive_axis * requested_wheel_force.clamp(-max_drive_force, max_drive_force);
+                let force_offset = contact_positions[wheel_index] - transform.origin;
+                self.base_mut()
+                    .apply_force_ex(drive_force)
+                    .position(force_offset)
+                    .done();
             }
-            let lateral_axis = lateral_axis.normalized();
-            // Resist chassis side-slip without cancelling the differential yaw motion.
-            let lateral_speed = velocity.dot(lateral_axis);
-            let max_lateral_force = suspension_force * MAX_LATERAL_GRIP;
-            let lateral_force_magnitude =
-                (-lateral_speed * (mass / WHEEL_COUNT as f32) * LATERAL_GRIP)
-                    .clamp(-max_lateral_force, max_lateral_force);
-            let lateral_force = lateral_axis * lateral_force_magnitude;
-            self.base_mut()
-                .apply_force_ex(lateral_force)
-                .position(force_offset)
-                .done();
         }
     }
 }

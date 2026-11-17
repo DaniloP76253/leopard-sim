@@ -3,7 +3,7 @@ use super::terrain::{terrain_height_at, terrain_line_blocked, terrain_world_heig
 use super::vecmath::{clampd, deg2rad, norm_deg, rad2deg, Vec2, Vec3};
 
 pub const PLAYER_HEIGHT: f32 = 1.45;
-pub const ROAD_WHEEL_X: [f64; 7] = [-2.4, -1.6, -0.8, 0.0, 0.8, 1.6, 2.4];
+pub const ROAD_WHEEL_X: [f64; 7] = [-2.64, -1.76, -0.88, 0.0, 0.88, 1.76, 2.64];
 pub const ROAD_WHEEL_RADIUS: f64 = 0.42;
 pub const ROAD_WHEEL_BASE_Y: f64 = -0.62;
 pub const TRACK_HALF_GAUGE: f64 = 1.95;

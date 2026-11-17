@@ -13,8 +13,9 @@ ambient_light_source = 2
 ambient_light_color = Color(0.65, 0.7, 0.75, 1)
 tonemap_mode = 2
 
+; The Rust traction model applies track grip; disable solver friction to avoid cancelling its drive force.
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_tank_tracks"]
-friction = 0.1
+friction = 0.0
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_tank"]
 size = Vector3(6.4, 1.8, 3.2)
@@ -39,6 +40,11 @@ surface_material_override/0 = ExtResource("8_terrainmat")
 [node name="PlayerTank" type="TankChassis" parent="." unique_id=1043444151]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 7.2674704)
 mass = 67000.0
+track_friction = 1.0
+suspension_spring_rate = 350000.0
+suspension_damping_rate = 50000.0
+suspension_max_force = 80000.0
+suspension_rest_length = 1.544
 physics_material_override = SubResource("PhysicsMaterial_tank_tracks")
 can_sleep = false
 linear_damp = 0.05
@@ -52,62 +58,62 @@ shape = SubResource("BoxShape3D_tank")
 [node name="Left" type="Node3D" parent="PlayerTank/Suspension" unique_id=1478946241]
 
 [node name="0" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=1300994331]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.4, 0.25, -1.95)
-target_position = Vector3(0, -1.55, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.64, 0.25, -1.95)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="1" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=1604297934]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.6, 0.25, -1.95)
-target_position = Vector3(0, -1.55, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.76, 0.25, -1.95)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="2" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=1909663867]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0.25, -1.95)
-target_position = Vector3(0, -1.55, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.88, 0.25, -1.95)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="3" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=1859918329]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.25, -1.95)
-target_position = Vector3(0, -1.55, 0)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="4" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=1238699000]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.25, -1.95)
-target_position = Vector3(0, -1.55, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.88, 0.25, -1.95)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="5" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=19222103]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.6, 0.25, -1.95)
-target_position = Vector3(0, -1.55, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.76, 0.25, -1.95)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="6" type="RayCast3D" parent="PlayerTank/Suspension/Left" unique_id=464280911]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.4, 0.25, -1.95)
-target_position = Vector3(0, -1.55, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.64, 0.25, -1.95)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="Right" type="Node3D" parent="PlayerTank/Suspension" unique_id=1638411628]
 
 [node name="0" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=321262474]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.4, 0.25, 1.95)
-target_position = Vector3(0, -1.55, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.64, 0.25, 1.95)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="1" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=801769316]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.6, 0.25, 1.95)
-target_position = Vector3(0, -1.55, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.76, 0.25, 1.95)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="2" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=1156112860]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0.25, 1.95)
-target_position = Vector3(0, -1.55, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.88, 0.25, 1.95)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="3" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=249280228]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.25, 1.95)
-target_position = Vector3(0, -1.55, 0)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="4" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=1979899877]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.25, 1.95)
-target_position = Vector3(0, -1.55, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.88, 0.25, 1.95)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="5" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=328202646]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.6, 0.25, 1.95)
-target_position = Vector3(0, -1.55, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.76, 0.25, 1.95)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="6" type="RayCast3D" parent="PlayerTank/Suspension/Right" unique_id=2121804947]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.4, 0.25, 1.95)
-target_position = Vector3(0, -1.55, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.64, 0.25, 1.95)
+target_position = Vector3(0, -1.75, 0)
 
 [node name="Visual" parent="PlayerTank" unique_id=1345785170 instance=ExtResource("12_tank_visual")]
 

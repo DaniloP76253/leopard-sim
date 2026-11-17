@@ -5,6 +5,8 @@ use godot::classes::{Engine, Mesh, MultiMesh, MultiMeshInstance3D, Node3D};
 use godot::prelude::*;
 
 const OUTLINE_SAMPLES_PER_WHEEL: usize = 48;
+const ROAD_WHEELS_PER_SIDE: usize = 7;
+const MAX_SUSPENSION_TRAVEL: f32 = 0.45;
 
 #[derive(Clone, Copy)]
 struct WheelCircle {
@@ -30,6 +32,10 @@ pub struct TankTracks {
     pub link_height: f32,
     #[export]
     pub link_width: f32,
+    #[export]
+    pub link_length_ratio: f32,
+    #[export]
+    pub track_slack: f32,
 }
 
 #[godot_api]
@@ -44,13 +50,15 @@ impl INode3D for TankTracks {
             link_half_thickness: 0.054,
             link_height: 0.18,
             link_width: 0.36,
+            link_length_ratio: 0.92,
+            track_slack: 0.08,
         }
     }
 
     fn ready(&mut self) {
         self.create_track_multimeshes();
         self.capture_wheel_transforms();
-        self.render_tracks(0.0, 0.0);
+        self.render_tracks(0.0, 0.0, &[]);
 
         if Engine::singleton().is_editor_hint() {
             self.base_mut().set_process(true);
@@ -69,10 +77,15 @@ impl INode3D for TankTracks {
 #[godot_api]
 impl TankTracks {
     #[func]
-    pub fn update_player_track_state(&mut self, state: Dictionary<Variant, Variant>) {
+    pub fn update_player_track_state(
+        &mut self,
+        state: Dictionary<Variant, Variant>,
+        wheel_compressions: PackedFloat32Array,
+    ) {
         self.render_tracks(
             Self::state_float(&state, "left_phase"),
             Self::state_float(&state, "right_phase"),
+            wheel_compressions.as_slice(),
         );
     }
 
@@ -81,6 +94,7 @@ impl TankTracks {
         self.render_tracks(
             Self::state_float(&state, "left_phase"),
             Self::state_float(&state, "right_phase"),
+            &[],
         );
     }
 }
@@ -143,18 +157,24 @@ impl TankTracks {
         }
     }
 
-    fn render_tracks(&self, left_phase: f32, right_phase: f32) {
+    fn render_tracks(&self, left_phase: f32, right_phase: f32, wheel_compressions: &[f32]) {
+        self.update_wheels("WheelsLeft", left_phase, wheel_compressions, 0);
+        self.update_wheels(
+            "WheelsRight",
+            right_phase,
+            wheel_compressions,
+            ROAD_WHEELS_PER_SIDE,
+        );
+        self.update_wheels("SprocketLeft", left_phase, &[], 0);
+        self.update_wheels("SprocketRight", right_phase, &[], 0);
+        self.update_wheels("IdlerLeft", left_phase, &[], 0);
+        self.update_wheels("IdlerRight", right_phase, &[], 0);
+        self.update_wheels("ReturnLeft", left_phase, &[], 0);
+        self.update_wheels("ReturnRight", right_phase, &[], 0);
+
+        // The belt follows the road wheels' current suspension positions.
         self.update_track_side("Left", left_phase);
         self.update_track_side("Right", right_phase);
-
-        self.update_wheels("WheelsLeft", left_phase);
-        self.update_wheels("WheelsRight", right_phase);
-        self.update_wheels("SprocketLeft", left_phase);
-        self.update_wheels("SprocketRight", right_phase);
-        self.update_wheels("IdlerLeft", left_phase);
-        self.update_wheels("IdlerRight", right_phase);
-        self.update_wheels("ReturnLeft", left_phase);
-        self.update_wheels("ReturnRight", right_phase);
     }
 
     fn append_wheel_circles(&self, path: &str, circles: &mut Vec<WheelCircle>) {
@@ -245,6 +265,37 @@ impl TankTracks {
         if Self::signed_area(&lower) > 0.0 {
             lower.reverse();
         }
+
+        // A small parabolic drop models slack in the unsupported upper run.
+        let slack = self.track_slack.clamp(0.0, 0.3);
+        if slack > 0.0 {
+            let min_x = lower
+                .iter()
+                .map(|point| point.x)
+                .fold(f32::INFINITY, f32::min);
+            let max_x = lower
+                .iter()
+                .map(|point| point.x)
+                .fold(f32::NEG_INFINITY, f32::max);
+            let min_y = lower
+                .iter()
+                .map(|point| point.y)
+                .fold(f32::INFINITY, f32::min);
+            let max_y = lower
+                .iter()
+                .map(|point| point.y)
+                .fold(f32::NEG_INFINITY, f32::max);
+            let mid_y = (min_y + max_y) * 0.5;
+            let width = (max_x - min_x).max(f32::EPSILON);
+
+            for point in &mut lower {
+                if point.y <= mid_y {
+                    continue;
+                }
+                let along = ((point.x - min_x) / width).clamp(0.0, 1.0);
+                point.y -= 4.0 * slack * along * (1.0 - along);
+            }
+        }
         lower
     }
 
@@ -319,7 +370,7 @@ impl TankTracks {
         let mesh_height = mesh_size.y.abs().max(0.0001);
         let mesh_width = mesh_size.z.abs().max(0.0001);
         let scale = Vector3::new(
-            step * 1.02 / mesh_length,
+            step * self.link_length_ratio.clamp(0.5, 1.0) / mesh_length,
             self.link_height.max(0.0001) / mesh_height,
             self.link_width.max(0.0001) / mesh_width,
         );
@@ -362,7 +413,13 @@ impl TankTracks {
         Some(local_radius * x_scale.max(z_scale))
     }
 
-    fn update_wheels(&self, path: &str, phase: f32) {
+    fn update_wheels(
+        &self,
+        path: &str,
+        phase: f32,
+        wheel_compressions: &[f32],
+        compression_offset: usize,
+    ) {
         let Some(rest_transforms) = self.wheel_rest_transforms.get(path) else {
             return;
         };
@@ -378,6 +435,12 @@ impl TankTracks {
                 .max(0.0001);
             let angle = -phase / radius;
             let mut transform = *rest_transform;
+            let compression = wheel_compressions
+                .get(compression_offset + index)
+                .copied()
+                .unwrap_or(0.0)
+                .clamp(0.0, MAX_SUSPENSION_TRAVEL);
+            transform.origin.y += compression;
             transform.basis = Basis::from_axis_angle(rotation_axis, angle) * rest_transform.basis;
             multimesh.set_instance_transform(index as i32, transform);
         }
